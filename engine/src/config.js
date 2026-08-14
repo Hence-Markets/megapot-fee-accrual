@@ -18,11 +18,22 @@
 //      To pause: MEGAPOT_ACTIVE=0. Clearing the whitelist does the
 //        exact opposite of pausing (it opens the campaign to everyone).
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// campaign controller — product parameters live in campaign.json (repo root);
+// env keeps the security gates and secrets. CAMPAIGN_FILE overrides the path.
+const _dir = path.dirname(fileURLToPath(import.meta.url));
+const _campaignPath = process.env.CAMPAIGN_FILE || path.join(_dir, '../../campaign.json');
+export const campaign = JSON.parse(fs.readFileSync(_campaignPath, 'utf8'));
+
 export const cfg = {
   DRY_RUN: process.env.DRY_RUN !== '0',            // safe by default: real buys need DRY_RUN=0
-  START_MS: Number(process.env.START_MS || 0),      // campaign start — refuse to run if 0
-  FEE_BPS: Number(process.env.FEE_BPS || 4.5),      // Hence builder fee, bps of notional
-  ROLLOVER: Number(process.env.ROLLOVER || 1.0),    // share of fee credited (1.0 = 100% per spec v3)
+  START_MS: Number(process.env.START_MS || campaign.campaign.startMs || 0), // env overrides the sheet
+  END_MS: Number(process.env.END_MS || campaign.campaign.endMs || 0),
+  FEE_BPS: Number(process.env.FEE_BPS || campaign.economics.feeBps || 4.5),
+  ROLLOVER: Number(process.env.ROLLOVER || campaign.economics.rolloverShare || 1.0),
 
   ACTIVE: process.env.MEGAPOT_ACTIVE === '1',
   // pre-production cohort. parse_whitelist semantics from users_store.py:
@@ -34,17 +45,20 @@ export const cfg = {
   USERS_FILE: process.env.USERS_FILE || '',
 
   // qualifying symbols (allowlist per spec; empty = all symbols qualify in test mode)
-  SYMBOLS: (process.env.SYMBOLS || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),
+  SYMBOLS: (process.env.SYMBOLS ? process.env.SYMBOLS.split(',') : (campaign.eligibility.symbols || [])).map((s) => String(s).trim().toUpperCase()).filter(Boolean),
+  PRODUCTS: campaign.eligibility.products || ['perps'],
+  ZERO_FEE: (campaign.eligibility.excludeZeroFeePairs || []).map((s) => String(s).toUpperCase()),
 
   // caps — belt and braces even though spend ≤ credit by construction
-  MAX_TICKETS_PER_WALLET_PER_DAY: Number(process.env.MAX_TICKETS_PER_WALLET_PER_DAY || 5),
-  GLOBAL_BUDGET_USDC: Number(process.env.GLOBAL_BUDGET_USDC || 50), // engine halts when lifetime spend reaches this
+  MAX_TICKETS_PER_WALLET_PER_DAY: Number(process.env.MAX_TICKETS_PER_WALLET_PER_DAY || campaign.caps.ticketsPerWalletPerDay || 5),
+  MAX_TICKETS_PER_WALLET_PER_WEEK: Number(campaign.caps.ticketsPerWalletPerWeek || 15),
+  GLOBAL_BUDGET_USDC: Number(process.env.GLOBAL_BUDGET_USDC || campaign.caps.globalBudgetUsdc || 50),
 
   // Hyperliquid public info API (venue-authoritative fills; no key needed)
   HL_INFO: 'https://api.hyperliquid.xyz/info',
 
   // Megapot on Base — testnet by default; TARGET=mainnet flips
-  TARGET: process.env.TARGET || 'testnet',
+  TARGET: process.env.TARGET || campaign.campaign.network || 'testnet',
   nets: {
     testnet: {
       rpc: process.env.RPC || 'https://sepolia.base.org',

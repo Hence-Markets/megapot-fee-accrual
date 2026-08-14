@@ -47,10 +47,17 @@ async function fills(wallet, sinceMs) {
   return out;
 }
 
-const qualifies = (coin) => {
+const qualifies = (coin, timeMs) => {
+  // campaign window is a hard bound in both directions
+  if (timeMs < cfg.START_MS || (cfg.END_MS && timeMs > cfg.END_MS)) return false;
+  const raw = String(coin);
+  const isXyz = raw.startsWith('xyz:');
+  const product = isXyz ? 'xyz-equities' : 'perps';
+  if (!cfg.PRODUCTS.includes(product)) return false;
+  const sym = (isXyz ? raw.split(':')[1] : raw).toUpperCase();
+  if (cfg.ZERO_FEE.includes(sym)) return false;           // zero-fee promo pairs earn nothing
   if (!cfg.SYMBOLS.length) return true;
-  const sym = String(coin).includes(':') ? String(coin).split(':')[1] : String(coin); // 'xyz:NVDA' → NVDA
-  return cfg.SYMBOLS.includes(sym.toUpperCase());
+  return cfg.SYMBOLS.includes(sym);
 };
 
 // ── accrue: fills since checkpoint → fee credit ────────────────────────────
@@ -62,7 +69,7 @@ export async function accrue() {
     const fs_ = await fills(w, ws.lastFillMs);
     let vol = 0;
     for (const f of fs_) {
-      if (!qualifies(f.coin)) continue;
+      if (!qualifies(f.coin, f.time)) continue;
       vol += Number(f.px) * Number(f.sz);
       ws.lastFillMs = Math.max(ws.lastFillMs, f.time);
     }
@@ -98,7 +105,8 @@ export async function buy() {
     const ws = wstate(s, w);
     const affordable = Math.floor(ws.creditUsdc / priceUsd);
     const dayCount = ws.tickets[day] || 0;
-    const capLeft = Math.max(0, cfg.MAX_TICKETS_PER_WALLET_PER_DAY - dayCount);
+    const week = Object.entries(ws.tickets).filter(([d]) => (Date.now() - new Date(d).getTime()) < 7*86400000).reduce((a, [,n]) => a + n, 0);
+    const capLeft = Math.max(0, Math.min(cfg.MAX_TICKETS_PER_WALLET_PER_DAY - dayCount, cfg.MAX_TICKETS_PER_WALLET_PER_WEEK - week));
     const budgetLeft = Math.max(0, Math.floor((cfg.GLOBAL_BUDGET_USDC - s.spentUsdc) / priceUsd));
     const count = Math.min(affordable, capLeft, budgetLeft, 10); // buyer contract caps 10/call
     if (count < 1) { console.log(`${w} credit $${ws.creditUsdc.toFixed(4)} → 0 tickets (affordable ${affordable}, cap ${capLeft}, budget ${budgetLeft})`); continue; }
