@@ -1,0 +1,62 @@
+# Build and publish the demo UI to GitHub Pages.
+#
+# The previous deploy shipped an EMPTY gh-pages branch — the export step produced nothing
+# because next.config had no `output: 'export'`. This builds, then FAILS LOUDLY if the export
+# is empty, so a silent 404 can't happen twice.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', 'campaign.json', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest        # deliberately NOT the self-hosted VM: this is a public
+                                  # static build with no secrets and no reason to touch prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'npm', cache-dependency-path: web/package-lock.json }
+
+      - name: Build static export
+        working-directory: web
+        env:
+          DEPLOY_TARGET: pages
+        run: |
+          npm ci
+          npm run build
+
+      - name: Refuse to publish an empty export
+        working-directory: web
+        run: |
+          set -euo pipefail
+          test -d out || { echo "::error::next build produced no out/ — is output:'export' set?"; exit 1; }
+          n=$(find out -type f | wc -l)
+          echo "exported $n files"
+          test "$n" -gt 1 || { echo "::error::export contains $n file(s); refusing to publish an empty site"; exit 1; }
+          test -f out/index.html || { echo "::error::no out/index.html"; exit 1; }
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: web/out }
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

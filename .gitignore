@@ -6,3 +6,8 @@ out/
 cache/
 broadcast/
 .next/
+out/
+.next/
+node_modules/
+deploy/.env
+engine/state/
