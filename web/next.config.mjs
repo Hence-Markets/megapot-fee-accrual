@@ -9,12 +9,21 @@
 //
 // basePath/assetPrefix are needed because Pages serves this from a repo subpath, not the
 // domain root. When it moves to megapot.hence.markets these become '' — see deploy notes.
-// basePath is only needed when Pages serves from a repo SUBPATH
-// (hence-markets.github.io/megapot-fee-accrual/). On the custom domain the site is at the
-// root, so it must be empty — leaving it set would 404 every asset.
-// web/public/CNAME is what selects the custom domain; it ships in the export.
+// ONE switch decides where this site lives: PAGES_MODE.
+//
+//   subpath (default today) → hence-markets.github.io/megapot-fee-accrual/
+//                             basePath set, CNAME NOT shipped
+//   domain                  → megapot.hence.markets
+//                             basePath empty, CNAME shipped
+//
+// The two must move together. basePath without the domain 404s every asset; the CNAME
+// without DNS makes Pages redirect to a host that does not resolve. Splitting them is
+// what broke the demo, so they are one switch now.
+//
+// Flip to `domain` once the DNS record exists:
+//   CNAME megapot → hence-markets.github.io
 const repo = 'megapot-fee-accrual';
-const isPages = process.env.DEPLOY_TARGET === 'subpath';
+const isPages = (process.env.PAGES_MODE || 'subpath') !== 'domain';
 
 export default {
   reactStrictMode: true,

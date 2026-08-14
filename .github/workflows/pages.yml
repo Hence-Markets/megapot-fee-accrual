@@ -31,6 +31,10 @@ jobs:
 
       - name: Build static export
         working-directory: web
+        env:
+          # subpath = github.io/<repo>/ · domain = megapot.hence.markets
+          # Flip to `domain` when the CNAME record exists. Nothing else changes.
+          PAGES_MODE: subpath
         run: |
           npm ci
           npm run build
@@ -44,9 +48,16 @@ jobs:
           echo "exported $n files"
           test "$n" -gt 1 || { echo "::error::export contains $n file(s); refusing to publish an empty site"; exit 1; }
           test -f out/index.html || { echo "::error::no out/index.html"; exit 1; }
-          # The custom domain lives or dies on this file surviving the export.
-          test -f out/CNAME || { echo "::error::out/CNAME missing — the custom domain would silently revert to github.io"; exit 1; }
-          echo "custom domain: $(cat out/CNAME)"
+          # CNAME ships ONLY in domain mode. Shipping it while DNS is absent makes Pages
+          # redirect to a host that does not resolve — which is how the demo went dark.
+          if [ "${PAGES_MODE:-subpath}" = "domain" ]; then
+            cp domain/CNAME out/CNAME
+            test -f out/CNAME || { echo "::error::domain mode but no out/CNAME"; exit 1; }
+            echo "custom domain: $(cat out/CNAME)"
+          else
+            test ! -f out/CNAME || { echo "::error::CNAME present in subpath mode — Pages would redirect off github.io"; exit 1; }
+            echo "serving from the github.io subpath"
+          fi
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
