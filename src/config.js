@@ -4,9 +4,19 @@
 //    eligible the moment the engine turns on. Set it before ACTIVE.
 //  - DRY_RUN=1 runs the full accrue→cap→select machine without touching
 //    the wire. Rehearse with it before every real run.
-//  - An EMPTY wallet list means NOBODY (unlike the serve.py whitelist
-//    convention where empty = everyone). This engine only ever acts on
-//    explicitly enrolled wallets.
+//  - Gate semantics follow the Hence feature-gates doc EXACTLY (cohesive
+//    with serve.py's campaign conventions, pre- and post-production):
+//      MEGAPOT_ACTIVE=1 + non-empty MEGAPOT_WHITELIST -> PRE-PRODUCTION:
+//        only the whitelisted team wallets accrue/buy. Any public flag
+//        downstream must stay false in this mode (honesty rule:
+//        active AND NOT whitelist) - testers learn through their own
+//        authenticated surface, never the public config.
+//      MEGAPOT_ACTIVE=1 + EMPTY whitelist -> POST-PRODUCTION (open):
+//        empty is the documented signal for "campaign open to all" -
+//        the eligible set becomes the FULL enrolled-user feed
+//        (USERS_FILE standalone; the hence_users DB once stitched).
+//      To pause: MEGAPOT_ACTIVE=0. Clearing the whitelist does the
+//        exact opposite of pausing (it opens the campaign to everyone).
 
 export const cfg = {
   DRY_RUN: process.env.DRY_RUN !== '0',            // safe by default: real buys need DRY_RUN=0
@@ -14,8 +24,14 @@ export const cfg = {
   FEE_BPS: Number(process.env.FEE_BPS || 4.5),      // Hence builder fee, bps of notional
   ROLLOVER: Number(process.env.ROLLOVER || 1.0),    // share of fee credited (1.0 = 100% per spec v3)
 
-  // enrolled trader wallets (the test cohort). Explicit list, lowercase.
-  WALLETS: (process.env.WALLETS || '').split(',').map((w) => w.trim().toLowerCase()).filter((w) => /^0x[a-f0-9]{40}$/.test(w)),
+  ACTIVE: process.env.MEGAPOT_ACTIVE === '1',
+  // pre-production cohort. parse_whitelist semantics from users_store.py:
+  // lowercase, strict 42-char 0x address, malformed entries silently dropped
+  // (a typo removes that person - it never matches nothing or everything).
+  WHITELIST: (process.env.MEGAPOT_WHITELIST || '').split(',').map((w) => w.trim().toLowerCase()).filter((w) => /^0x[a-f0-9]{40}$/.test(w)),
+  // open-mode user feed: JSON array of wallets. Standalone stand-in for the
+  // hence_users enrollment pull; required before the whitelist may be emptied.
+  USERS_FILE: process.env.USERS_FILE || '',
 
   // qualifying symbols (allowlist per spec; empty = all symbols qualify in test mode)
   SYMBOLS: (process.env.SYMBOLS || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),

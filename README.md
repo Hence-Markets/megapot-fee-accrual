@@ -21,7 +21,7 @@ Per-wallet spend never exceeds per-wallet accrued fee credit (spec v3). Plus har
 
 - **`START_MS` is required** — without a campaign start, every historical fill becomes eligible the moment you switch on. The engine refuses to run without it.
 - **`DRY_RUN=1` is the default** — full accrue → cap → select machinery, prints what it *would* buy, moves nothing. `DRY_RUN=0` for live.
-- **Empty `WALLETS` means NOBODY** — the engine only acts on explicitly enrolled wallets (deliberately opposite to the serve.py whitelist convention where empty = everyone).
+- **Gate semantics match serve.py exactly** (pre/post-production cohesive): `MEGAPOT_ACTIVE=1` + non-empty `MEGAPOT_WHITELIST` = pre-production team cohort, and any downstream public flag stays false (honesty rule: `active AND NOT whitelist`). `MEGAPOT_ACTIVE=1` + **empty whitelist = open to ALL** enrolled users (`USERS_FILE` standalone; the `hence_users` DB once stitched) — the engine refuses open mode without a user feed. **To pause: `MEGAPOT_ACTIVE=0`** — clearing the whitelist is the opposite of pausing.
 - The pool key is a capped hot wallet; `GLOBAL_BUDGET_USDC` halts the engine regardless of credit.
 
 ## Run

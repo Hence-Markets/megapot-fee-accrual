@@ -4,6 +4,15 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
 import { cfg, net, jackpotAbi, buyerAbi, erc20Abi } from './config.js';
 
+// Eligible set per the feature-gates conventions: whitelist = pre-production
+// cohort; empty whitelist = open mode, full user feed. Pause = ACTIVE=0.
+export function eligibleWallets() {
+  if (cfg.WHITELIST.length) return cfg.WHITELIST;
+  if (!cfg.USERS_FILE) throw new Error('Open mode (empty MEGAPOT_WHITELIST) requires USERS_FILE - empty whitelist means EVERYONE, and the engine needs the user feed to know who that is.');
+  const list = JSON.parse(fs.readFileSync(cfg.USERS_FILE, 'utf8'));
+  return list.map((w) => String(w).trim().toLowerCase()).filter((w) => /^0x[a-f0-9]{40}$/.test(w));
+}
+
 const STATE = 'state/ledger.json';
 
 // ── ledger ──────────────────────────────────────────────────────────────────
@@ -48,7 +57,7 @@ const qualifies = (coin) => {
 export async function accrue() {
   guard();
   const s = load();
-  for (const w of cfg.WALLETS) {
+  for (const w of eligibleWallets()) {
     const ws = wstate(s, w);
     const fs_ = await fills(w, ws.lastFillMs);
     let vol = 0;
@@ -85,7 +94,7 @@ export async function buy() {
     wallet = createWalletClient({ account, chain, transport: http(n.rpc) });
   }
 
-  for (const w of cfg.WALLETS) {
+  for (const w of eligibleWallets()) {
     const ws = wstate(s, w);
     const affordable = Math.floor(ws.creditUsdc / priceUsd);
     const dayCount = ws.tickets[day] || 0;
@@ -117,12 +126,15 @@ export async function buy() {
 
 export function status() {
   const s = load();
-  console.log(JSON.stringify({ target: cfg.TARGET, dryRun: cfg.DRY_RUN, startMs: cfg.START_MS, spentUsdc: s.spentUsdc, wallets: s.wallets }, null, 2));
+  const mode = !cfg.ACTIVE ? 'INACTIVE' : cfg.WHITELIST.length ? 'PRE-PRODUCTION (whitelist)' : 'POST-PRODUCTION (open)';
+  // honesty rule for any downstream public surface: publicFlag = active AND NOT whitelist
+  const publicFlag = cfg.ACTIVE && !cfg.WHITELIST.length;
+  console.log(JSON.stringify({ mode, publicFlag, target: cfg.TARGET, dryRun: cfg.DRY_RUN, startMs: cfg.START_MS, cohort: cfg.WHITELIST.length || 'open', spentUsdc: s.spentUsdc, wallets: s.wallets }, null, 2));
 }
 
 function guard() {
-  if (!cfg.START_MS) throw new Error('START_MS is required — set the campaign start before running (historical fills must never credit).');
-  if (!cfg.WALLETS.length) throw new Error('WALLETS is empty — this engine only acts on explicitly enrolled wallets (empty means NOBODY).');
+  if (!cfg.ACTIVE) throw new Error('MEGAPOT_ACTIVE != 1 - campaign is off. To pause a whitelist test, set ACTIVE=0; never clear the whitelist (empty = open to ALL).');
+  if (!cfg.START_MS) throw new Error('START_MS is required - set the campaign start before running (historical fills must never credit).');
   if (!cfg.DRY_RUN && !cfg.PRIVATE_KEY) throw new Error('LIVE mode needs PRIVATE_KEY (the capped pool wallet).');
   if (!cfg.DRY_RUN && cfg.TARGET === 'mainnet' && !cfg.TREASURY) throw new Error('LIVE mainnet needs TREASURY set.');
 }
