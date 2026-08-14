@@ -30,9 +30,19 @@ costs real money.
 
 ### Operating it
 
-Use **Actions → set-megapot-env** rather than editing `.env` on the box. It writes the file,
-injects the key from repo secrets, and recreates the container. Same shape as neo-hence's
-`set-rebate-env`, so there is one way to run a campaign here rather than two.
+**Deployment is dispatched from `neo-hence`, not from this repo** — Actions → **deploy-megapot**.
+It checks this repo out by ref, syncs it to the VM, writes `.env` from secrets held there, and
+recreates the container.
+
+That inversion is deliberate and is a security boundary, not a preference. The self-hosted
+runner *is* the VM: it holds the `hence_users` Postgres, the upstream API keys, the rebate
+payout wallet key and the Megapot pool wallet key. **This repo is public.** A runner reachable
+from a public repo means anyone's pull request can execute next to those secrets, which is
+what GitHub's own guidance warns against. So the private repo reaches in; the public repo never
+touches the runner.
+
+Practically, nothing changes for contributors: push here as normal, and release with a dispatch
+from neo-hence.
 
 Order matters, and the workflow enforces it:
 
@@ -76,10 +86,11 @@ Pages, not the VM — it is static and the VM stack has no web surface to attach
 Do **not** add it to the Cloudflare Tunnel — that is for services on the VM, and routing a
 static site through it buys nothing.
 
-## 3 · The runner blocker
+## 3 · Why there is no runner blocker
 
-`set-megapot-env` needs a self-hosted runner **this repo can use**. Today `hence-neo-vm` is
-scoped to `neo-hence`, so the workflow will **queue forever rather than fail**.
+An earlier draft of this file told you to promote `hence-neo-vm` to an **org-level** runner so
+this repo could use it. **Do not do that.** It would expose a VM holding wallet keys to every
+public repo in the org, and both this repo and `hence-incognito` are public.
 
-Promote it to an **org-level** runner. That fixes this repo and `hence-incognito`, which needs
-the same thing. Registering a second runner works too but means two to keep patched.
+Deploying from the private repo removes the need entirely: no org runner, no runner groups, no
+plan-tier dependency. See `neo-hence/.github/workflows/deploy-megapot.yml`.
