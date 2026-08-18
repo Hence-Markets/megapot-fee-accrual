@@ -82,6 +82,36 @@ export async function accrue() {
   return s;
 }
 
+// reconcile: if the ledger claims more lifetime tickets than the venue's API
+// shows for a wallet, the difference is phantoms from reverted buys — refund
+// the credit and hand back cap/budget. (Caveat: a lagging indexer could make
+// a real ticket look phantom for a few minutes; acceptable in the testnet
+// phase, revisit before mainnet with tx-hash-level records.)
+const MP_API = () => cfg.TARGET === 'mainnet' ? 'https://api.megapot.io/v1' : 'https://api-testnet.megapot.io/v1';
+async function reconcile(s, priceUsd) {
+  for (const [w, ws] of Object.entries(s.wallets)) {
+    const ledgerTotal = Object.values(ws.tickets || {}).reduce((a, n) => a + n, 0);
+    if (!ledgerTotal) continue;
+    let apiCount = null;
+    try {
+      const r = await fetch(`${MP_API()}/wallets/${w}/tickets`);
+      if (r.ok) { const j = await r.json(); apiCount = Array.isArray(j?.data) ? j.data.length : null; }
+    } catch { /* unreachable API: skip, never guess */ }
+    if (apiCount == null) continue;
+    let phantom = Math.max(0, ledgerTotal - apiCount);
+    if (!phantom) continue;
+    console.log(`${w} reconcile: ledger ${ledgerTotal} vs venue ${apiCount} — refunding ${phantom} phantom ticket(s)`);
+    s.spentUsdc = Math.max(0, s.spentUsdc - phantom * priceUsd);
+    ws.creditUsdc += phantom * priceUsd;
+    for (const day of Object.keys(ws.tickets).sort().reverse()) {
+      const take = Math.min(ws.tickets[day], phantom);
+      ws.tickets[day] -= take; phantom -= take;
+      if (!ws.tickets[day]) delete ws.tickets[day];
+      if (!phantom) break;
+    }
+  }
+}
+
 // ── buy: credit ≥ live ticket price → tickets minted to the trader ─────────
 export async function buy() {
   guard();
@@ -94,6 +124,7 @@ export async function buy() {
   const drawing = await pub.readContract({ address: n.jackpot, abi: jackpotAbi, functionName: 'currentDrawingId' });
   const day = new Date().toISOString().slice(0, 10);
   console.log(`drawing #${drawing} · ticket $${priceUsd} · ${cfg.DRY_RUN ? 'DRY RUN — no funds move' : 'LIVE'}`);
+  await reconcile(s, priceUsd);
 
   let account = null, wallet = null;
   if (!cfg.DRY_RUN) {
@@ -128,6 +159,12 @@ export async function buy() {
       gas: 15_000_000n,
     });
     const rc = await pub.waitForTransactionReceipt({ hash: h2 });
+    // a mined-but-REVERTED buy must not touch the ledger: unchecked status
+    // once recorded a phantom purchase that ate the daily cap (tx 0x605689d2)
+    if (rc.status !== 'success') {
+      console.log(`${w} buy REVERTED on-chain (tx ${rc.transactionHash}) — ledger untouched`);
+      continue;
+    }
     ws.creditUsdc -= count * priceUsd;
     ws.tickets[day] = dayCount + count;
     s.spentUsdc += count * priceUsd;
