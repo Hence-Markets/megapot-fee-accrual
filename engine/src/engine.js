@@ -118,9 +118,14 @@ export async function buy() {
     const cost = price * BigInt(count);
     const h1 = await wallet.writeContract({ address: n.usdc, abi: erc20Abi, functionName: 'approve', args: [n.randomBuyer, cost] });
     await pub.waitForTransactionReceipt({ hash: h1 });
+    // explicit gas: the quick-pick path's cost is variable (entropy + per-ticket
+    // loops) and estimation both underestimates it (observed 5.42M used of a
+    // 5.5M limit -> on-chain OOG revert) and races fresh approvals on laggy
+    // RPCs. A generous fixed limit sidesteps both; unused gas is refunded.
     const h2 = await wallet.writeContract({
       address: n.randomBuyer, abi: buyerAbi, functionName: 'buyTickets',
       args: [BigInt(count), w, cfg.TREASURY ? [cfg.TREASURY] : [], cfg.TREASURY ? [10n ** 18n] : [], keccak256(toHex(cfg.SOURCE_TAG))],
+      gas: 15_000_000n,
     });
     const rc = await pub.waitForTransactionReceipt({ hash: h2 });
     ws.creditUsdc -= count * priceUsd;
