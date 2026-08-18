@@ -82,32 +82,32 @@ export async function accrue() {
   return s;
 }
 
-// reconcile: if the ledger claims more lifetime tickets than the venue's API
-// shows for a wallet, the difference is phantoms from reverted buys — refund
-// the credit and hand back cap/budget. (Caveat: a lagging indexer could make
-// a real ticket look phantom for a few minutes; acceptable in the testnet
-// phase, revisit before mainnet with tx-hash-level records.)
-const MP_API = () => cfg.TARGET === 'mainnet' ? 'https://api.megapot.io/v1' : 'https://api-testnet.megapot.io/v1';
-async function reconcile(s, priceUsd) {
-  for (const [w, ws] of Object.entries(s.wallets)) {
-    const ledgerTotal = Object.values(ws.tickets || {}).reduce((a, n) => a + n, 0);
-    if (!ledgerTotal) continue;
-    let apiCount = null;
+// reconcile: every recorded purchase carries its tx hash; verification is the
+// on-chain receipt itself, not an indexer's opinion. A purchase whose receipt
+// is reverted (or vanished after a reorg window) refunds credit, cap and
+// budget precisely. Mainnet-grade: no API-lag false positives.
+async function reconcile(s, pub, priceUsd) {
+  for (const p of s.purchases || []) {
+    if (p.verified) continue;
+    let status = null;
     try {
-      const r = await fetch(`${MP_API()}/wallets/${w}/tickets`);
-      if (r.ok) { const j = await r.json(); apiCount = Array.isArray(j?.data) ? j.data.length : null; }
-    } catch { /* unreachable API: skip, never guess */ }
-    if (apiCount == null) continue;
-    let phantom = Math.max(0, ledgerTotal - apiCount);
-    if (!phantom) continue;
-    console.log(`${w} reconcile: ledger ${ledgerTotal} vs venue ${apiCount} — refunding ${phantom} phantom ticket(s)`);
-    s.spentUsdc = Math.max(0, s.spentUsdc - phantom * priceUsd);
-    ws.creditUsdc += phantom * priceUsd;
-    for (const day of Object.keys(ws.tickets).sort().reverse()) {
-      const take = Math.min(ws.tickets[day], phantom);
-      ws.tickets[day] -= take; phantom -= take;
-      if (!ws.tickets[day]) delete ws.tickets[day];
-      if (!phantom) break;
+      const rc = await pub.getTransactionReceipt({ hash: p.tx });
+      status = rc?.status ?? null;
+    } catch { /* not found yet: leave unverified, re-check next cycle */ }
+    if (status === 'success') { p.verified = true; continue; }
+    if (status === 'reverted') {
+      console.log(`${p.wallet} reconcile: tx ${p.tx} reverted — refunding ${p.count} ticket(s)`);
+      const ws = s.wallets[p.wallet];
+      const price = p.priceUsd ?? priceUsd;
+      s.spentUsdc = Math.max(0, s.spentUsdc - p.count * price);
+      if (ws) {
+        ws.creditUsdc += p.count * price;
+        if (ws.tickets?.[p.day] != null) {
+          ws.tickets[p.day] = Math.max(0, ws.tickets[p.day] - p.count);
+          if (!ws.tickets[p.day]) delete ws.tickets[p.day];
+        }
+      }
+      p.verified = true; p.refunded = true;
     }
   }
 }
@@ -124,7 +124,7 @@ export async function buy() {
   const drawing = await pub.readContract({ address: n.jackpot, abi: jackpotAbi, functionName: 'currentDrawingId' });
   const day = new Date().toISOString().slice(0, 10);
   console.log(`drawing #${drawing} · ticket $${priceUsd} · ${cfg.DRY_RUN ? 'DRY RUN — no funds move' : 'LIVE'}`);
-  await reconcile(s, priceUsd);
+  await reconcile(s, pub, priceUsd);
 
   let account = null, wallet = null;
   if (!cfg.DRY_RUN) {
@@ -168,6 +168,7 @@ export async function buy() {
     ws.creditUsdc -= count * priceUsd;
     ws.tickets[day] = dayCount + count;
     s.spentUsdc += count * priceUsd;
+    (s.purchases ??= []).push({ ts: Date.now(), wallet: w, day, count, priceUsd, drawing: drawing.toString(), tx: rc.transactionHash, verified: false });
     console.log(`${w} bought ${count} ticket(s) → tx ${rc.transactionHash}`);
   }
   save(s);
