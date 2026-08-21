@@ -74,6 +74,8 @@ export const cfg = {
     },
   },
 
+  FIRST_TRADE: campaign.firstTradeBonus || null,     // new-user unlock (null disables)
+
   TREASURY: (process.env.TREASURY || '').toLowerCase(), // Megapot referrer — referral fees recycle
   PRIVATE_KEY: process.env.PRIVATE_KEY || '',           // pool hot wallet (capped)
   SOURCE_TAG: 'hence-fee-accrual',

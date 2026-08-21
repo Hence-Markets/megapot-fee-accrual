@@ -77,11 +77,22 @@ export async function accrue() {
   for (const w of eligibleWallets()) {
     const ws = wstate(s, w);
     const fs_ = await fills(w, ws.lastFillMs);
-    let vol = 0;
+    const isNew = !ws.volumeUsd && !ws.firstTradeBonus && !ws.bonusTicketsPending;
+    let vol = 0, firstNotional = null;
     for (const f of fs_) {
       if (!qualifies(f.coin, f.time)) continue;
-      vol += Number(f.px) * Number(f.sz);
+      const notional = Number(f.px) * Number(f.sz);
+      if (firstNotional == null) firstNotional = notional;
+      vol += notional;
       ws.lastFillMs = Math.max(ws.lastFillMs, f.time);
+    }
+    // new-user unlock: the FIRST qualifying trade opens a 1-5 ticket pack.
+    // Ticket count is fixed here (deterministic from the fill); the dollar
+    // conversion waits for buy(), which knows the live ticket price.
+    const ft = cfg.FIRST_TRADE;
+    if (ft && isNew && firstNotional != null) {
+      ws.bonusTicketsPending = Math.max(ft.baseTickets, Math.min(ft.maxTickets, ft.baseTickets + Math.floor(firstNotional / ft.plusPerUsd)));
+      console.log(`${w} first-trade unlock: ${ws.bonusTicketsPending} bonus ticket(s) pending (first fill $${firstNotional.toFixed(2)})`);
     }
     const credit = vol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER;
     ws.volumeUsd += vol;
@@ -144,6 +155,12 @@ export async function buy() {
 
   for (const w of eligibleWallets()) {
     const ws = wstate(s, w);
+    if (ws.bonusTicketsPending > 0) {
+      ws.creditUsdc += ws.bonusTicketsPending * priceUsd;
+      ws.firstTradeBonus = { tickets: ws.bonusTicketsPending, priceUsd, grantedMs: Date.now() };
+      console.log(`${w} first-trade bonus credited: ${ws.bonusTicketsPending} ticket(s) at $${priceUsd}`);
+      ws.bonusTicketsPending = 0;
+    }
     const affordable = Math.floor(ws.creditUsdc / priceUsd);
     const dayCount = ws.tickets[day] || 0;
     const week = Object.entries(ws.tickets).filter(([d]) => (Date.now() - new Date(d).getTime()) < 7*86400000).reduce((a, [,n]) => a + n, 0);

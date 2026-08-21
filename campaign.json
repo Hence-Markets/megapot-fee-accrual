@@ -56,5 +56,11 @@
     "ticketsPerWalletPerDay": 5,
     "ticketsPerWalletPerWeek": 15,
     "globalBudgetUsdc": 50
+  },
+  "firstTradeBonus": {
+    "baseTickets": 1,
+    "plusPerUsd": 250,
+    "maxTickets": 5,
+    "$note": "new-user unlock: first qualifying trade grants baseTickets + floor(notional/plusPerUsd), capped at maxTickets. Converted to credit at the LIVE ticket price in buy()."
   }
 }
