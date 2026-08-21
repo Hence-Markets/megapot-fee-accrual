@@ -13,14 +13,24 @@ export function eligibleWallets() {
   return list.map((w) => String(w).trim().toLowerCase()).filter((w) => /^0x[a-f0-9]{40}$/.test(w));
 }
 
-const STATE = 'state/ledger.json';
+// One ledger PER NETWORK: caps, spend and purchase records must not leak
+// across the testnet→mainnet cutover (a $0.01 rehearsal ticket must never eat
+// a $1 mainnet allowance, and reconcile must never look up a testnet tx on
+// mainnet). The legacy un-suffixed file predates the split and was testnet.
+const STATE = `state/ledger.${cfg.TARGET}.json`;
+const LEGACY_STATE = 'state/ledger.json';
 
 // ── ledger ──────────────────────────────────────────────────────────────────
 // One JSON file: per-wallet fee credit (USDC, 6dp int), checkpoint of the last
 // fill time already counted, tickets bought per day, lifetime spend.
 export function load() {
   try { return JSON.parse(fs.readFileSync(STATE, 'utf8')); }
-  catch { return { wallets: {}, spentUsdc: 0 }; }
+  catch {
+    if (cfg.TARGET === 'testnet') {
+      try { return JSON.parse(fs.readFileSync(LEGACY_STATE, 'utf8')); } catch { /* fresh */ }
+    }
+    return { wallets: {}, spentUsdc: 0 };
+  }
 }
 export function save(s) {
   fs.mkdirSync('state', { recursive: true });
