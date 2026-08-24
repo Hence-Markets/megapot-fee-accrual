@@ -132,6 +132,13 @@ export async function accrue() {
         if (new Date(d + 'T00:00:00Z').getTime() < mondayMs - 14 * 86400000) delete ws.days[d];
       }
     }
+    for (const g of cfg.OPS_GRANTS) {
+      if (String(g.wallet).toLowerCase() !== w) continue;
+      if ((ws.opsGrants ??= {})[g.id]) continue;
+      ws.creditUsdc += Number(g.usd) || 0;
+      ws.opsGrants[g.id] = { usd: g.usd, at: Date.now() };
+      console.log(`${w} ops grant '${g.id}': +$${Number(g.usd).toFixed(2)} credit`);
+    }
     const credit = vol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER;
     ws.volumeUsd += vol;
     ws.creditUsdc += credit;
@@ -236,7 +243,9 @@ export async function buy() {
     const h2 = await wallet.writeContract({
       address: n.randomBuyer, abi: buyerAbi, functionName: 'buyTickets',
       args: [BigInt(count), w, cfg.TREASURY ? [cfg.TREASURY] : [], cfg.TREASURY ? [10n ** 18n] : [], keccak256(toHex(cfg.SOURCE_TAG))],
-      gas: 15_000_000n,
+      gas: 8_000_000n,
+      maxFeePerGas: 25_000_000n,        // 0.025 gwei cap - Base runs ~0.006
+      maxPriorityFeePerGas: 1_000_000n, // 0.001 gwei tip
     });
     const rc = await pub.waitForTransactionReceipt({ hash: h2 });
     // a mined-but-REVERTED buy must not touch the ledger: unchecked status

@@ -2,7 +2,7 @@
 # accrue → buy on an interval. Same shape as neo-hence's pipeline container: loop in-process
 # rather than host cron, so the schedule ships with the deployment and survives a VM reboot.
 set -u
-INTERVAL="${ENGINE_INTERVAL_S:-900}"
+INTERVAL="${ENGINE_INTERVAL_S:-300}"
 
 echo "[megapot] starting · interval=${INTERVAL}s · DRY_RUN=${DRY_RUN:-1} · TARGET=${TARGET:-testnet}"
 if [ "${DRY_RUN:-1}" = "0" ]; then

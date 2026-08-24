@@ -162,5 +162,13 @@
       }
     ],
     "$note": "trade-day streak within the week: at day N with >= min cumulative qualifying volume, +tickets once per week; shared 20-ticket season pool."
-  }
+  },
+  "opsGrants": [
+    {
+      "wallet": "0x9cc6c5d8318c69b602b866f644628e61d98f55ed",
+      "usd": 1.1,
+      "id": "mainnet-smoke-1",
+      "$note": "one-time ops credit grant, applied once per id per wallet and recorded in the ledger - used here for the supervised first mainnet mint test"
+    }
+  ]
 }

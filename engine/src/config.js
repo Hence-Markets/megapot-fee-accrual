@@ -76,6 +76,7 @@ export const cfg = {
 
   FIRST_TRADE: campaign.firstTradeBonus || null,     // new-user unlock (null disables)
   STREAK: campaign.streak || null,                    // day-3/day-5 checkpoint grants (null disables)
+  OPS_GRANTS: campaign.opsGrants || [],               // one-time config-driven credit grants (compensations, smoke tests)
 
   TREASURY: (process.env.TREASURY || '').toLowerCase(), // Megapot referrer — referral fees recycle
   PRIVATE_KEY: process.env.PRIVATE_KEY || '',           // pool hot wallet (capped)
