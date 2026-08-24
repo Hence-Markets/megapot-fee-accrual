@@ -2,7 +2,7 @@
   "$doc": "Campaign controller \u2014 the single spec sheet ops edits to retune the program. The engine and frontend both read this file. Env vars still hold the SECURITY gates (MEGAPOT_ACTIVE, MEGAPOT_WHITELIST, keys) \u2014 this file holds the PRODUCT parameters.",
   "campaign": {
     "id": "megapot-rewards-s1",
-    "name": "Megapot Rewards \u2014 Season 1",
+    "name": "Megapot Rewards - Season 1",
     "startMs": 1786665600000,
     "endMs": 1789344000000,
     "network": "testnet",
@@ -117,6 +117,7 @@
       "Tickets mint non-custodially to your own wallet on Base. Hence never holds your tickets or winnings.",
       "Prizes, odds, draw mechanics and claims are operated by Megapot under Megapot's terms.",
       "Reward credit has no cash value and converts only to tickets at Megapot's live ticket price.",
+      "Multiplier tiers (2x-5x) activate as basket tracking goes live this season; until then the base rate applies.",
       "Availability subject to eligibility and jurisdiction. Parameters may be retuned between seasons."
     ],
     "megapotTermsUrl": "https://docs.megapot.io/appendix/terms-of-service",
