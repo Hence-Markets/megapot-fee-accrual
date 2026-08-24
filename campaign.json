@@ -54,7 +54,8 @@
   "caps": {
     "ticketsPerWalletPerDay": 5,
     "ticketsPerWalletPerWeek": 15,
-    "globalBudgetUsdc": 50
+    "globalBudgetUsdc": 300,
+    "$globalBudgetUsdc": "season spend ceiling: 200-ticket activation pool + volume/streak buffer. The deploy dispatch budget_usdc input overrides - keep them in step. Fund the pool wallet to at least this in USDC plus ~0.01 ETH gas."
   },
   "firstTradeBonus": {
     "baseTickets": 1,

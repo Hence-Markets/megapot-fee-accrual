@@ -43,6 +43,10 @@ export const cfg = {
   // open-mode user feed: JSON array of wallets. Standalone stand-in for the
   // hence_users enrollment pull; required before the whitelist may be emptied.
   USERS_FILE: process.env.USERS_FILE || '',
+  // live enrollment feed (open mode): the hence backend's admin wallet feed.
+  // Returns [{wallet, emailBound}] - polled each cycle, disk-cached.
+  USERS_URL: process.env.USERS_URL || '',
+  USERS_TOKEN: process.env.USERS_TOKEN || '',
 
   // qualifying symbols (allowlist per spec; empty = all symbols qualify in test mode)
   SYMBOLS: (process.env.SYMBOLS ? process.env.SYMBOLS.split(',') : (campaign.eligibility.symbols || [])).map((s) => String(s).trim().toUpperCase()).filter(Boolean),
@@ -78,6 +82,9 @@ export const cfg = {
   STREAK: campaign.streak || null,                    // day-3/day-5 checkpoint grants (null disables)
   OPS_GRANTS: campaign.opsGrants || [],               // one-time config-driven credit grants (compensations, smoke tests)
 
+  // buy-tx fee ceiling: raise via MAX_FEE_GWEI when Base runs hot - buys stall
+  // (retrying each cycle) while the base fee sits above this cap.
+  MAX_FEE_WEI: BigInt(Math.round(Number(process.env.MAX_FEE_GWEI || 0.018) * 1e9)),
   TREASURY: (process.env.TREASURY || '').toLowerCase(), // Megapot referrer — referral fees recycle
   PRIVATE_KEY: process.env.PRIVATE_KEY || '',           // pool hot wallet (capped)
   SOURCE_TAG: 'hence-fee-accrual',

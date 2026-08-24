@@ -6,12 +6,50 @@ import { cfg, net, jackpotAbi, buyerAbi, erc20Abi } from './config.js';
 
 // Eligible set per the feature-gates conventions: whitelist = pre-production
 // cohort; empty whitelist = open mode, full user feed. Pause = ACTIVE=0.
-export function eligibleWallets() {
-  if (cfg.WHITELIST.length) return cfg.WHITELIST;
-  if (!cfg.USERS_FILE) throw new Error('Open mode (empty MEGAPOT_WHITELIST) requires USERS_FILE - empty whitelist means EVERYONE, and the engine needs the user feed to know who that is.');
-  const list = JSON.parse(fs.readFileSync(cfg.USERS_FILE, 'utf8'));
-  return list.map((w) => String(w).trim().toLowerCase()).filter((w) => /^0x[a-f0-9]{40}$/.test(w));
+// Open mode takes the feed from USERS_URL (the hence backend's admin wallet
+// feed, refreshed each cycle with a disk cache to ride out outages) or
+// USERS_FILE (static JSON). Rows may be plain "0x…" strings or
+// {wallet, emailBound} objects; emailBound gates ACTIVATION PACKS only -
+// volume accrual never depends on it.
+const FEED_CACHE = `state/users.feed.${cfg.TARGET}.json`;
+let _feed = null;
+const _parseRows = (rows) => {
+  const wallets = [], emailBound = {};
+  for (const row of rows) {
+    const obj = typeof row === 'object' && row !== null;
+    const w = String(obj ? row.wallet : row).trim().toLowerCase();
+    if (!/^0x[a-f0-9]{40}$/.test(w)) continue;    // malformed entries drop - never match
+    wallets.push(w);
+    emailBound[w] = obj ? !!(row.emailBound ?? row.email_bound) : true;
+  }
+  return { wallets, emailBound };
+};
+export async function ensureFeed() {
+  if (cfg.WHITELIST.length) { _feed = { wallets: cfg.WHITELIST, emailBound: null }; return; }
+  if (cfg.USERS_URL) {
+    try {
+      const r = await fetch(cfg.USERS_URL, { headers: cfg.USERS_TOKEN ? { Authorization: `Bearer ${cfg.USERS_TOKEN}` } : {} });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      _feed = _parseRows(Array.isArray(j) ? j : j.wallets || []);
+      try { fs.writeFileSync(FEED_CACHE, JSON.stringify(_feed)); } catch { /* cache is best-effort */ }
+    } catch (e) {
+      try {
+        _feed = JSON.parse(fs.readFileSync(FEED_CACHE, 'utf8'));
+        console.log(`[megapot] user feed unreachable (${e.message}) - continuing on cached feed (${_feed.wallets.length} wallets)`);
+      } catch { throw new Error(`Open mode: user feed unreachable and no cache yet (${e.message})`); }
+    }
+    return;
+  }
+  if (!cfg.USERS_FILE) throw new Error('Open mode (empty MEGAPOT_WHITELIST) requires USERS_URL or USERS_FILE - empty whitelist means EVERYONE, and the engine needs the user feed to know who that is.');
+  _feed = _parseRows(JSON.parse(fs.readFileSync(cfg.USERS_FILE, 'utf8')));
 }
+export function eligibleWallets() {
+  if (!_feed) throw new Error('user feed not loaded - ensureFeed() runs at cycle start');
+  return _feed.wallets;
+}
+// whitelist test cohorts (emailBound null) skip the email gate
+const emailBound = (w) => (_feed && _feed.emailBound != null ? !!_feed.emailBound[w] : true);
 
 // One ledger PER NETWORK: caps, spend and purchase records must not leak
 // across the testnet→mainnet cutover (a $0.01 rehearsal ticket must never eat
@@ -73,35 +111,47 @@ const qualifies = (coin, timeMs) => {
 // ── accrue: fills since checkpoint → fee credit ────────────────────────────
 export async function accrue() {
   guard();
+  await ensureFeed();
   const s = load();
   for (const w of eligibleWallets()) {
     const ws = wstate(s, w);
     const fs_ = await fills(w, ws.lastFillMs);
-    const isNew = !ws.volumeUsd && !ws.firstTradeBonus && !ws.bonusTicketsPending;
-    let vol = 0, firstNotional = null;
+    let vol = 0, activationFill = null;
+    const ftMin = cfg.FIRST_TRADE ? (cfg.FIRST_TRADE.minTradeUsd || 0) : Infinity;
     for (const f of fs_) {
       if (!qualifies(f.coin, f.time)) continue;
       const notional = Number(f.px) * Number(f.sz);
-      if (firstNotional == null) firstNotional = notional;
+      if (activationFill == null && notional >= ftMin) activationFill = notional;
       vol += notional;
       const dstr = new Date(f.time).toISOString().slice(0, 10);
       (ws.days ??= {})[dstr] = (ws.days[dstr] || 0) + notional;
       ws.lastFillMs = Math.max(ws.lastFillMs, f.time);
     }
-    // new-user unlock: the FIRST qualifying trade opens a 1-5 ticket pack.
-    // Ticket count is fixed here (deterministic from the fill); the dollar
-    // conversion waits for buy(), which knows the live ticket price.
+    // activation pack: granted ONCE per wallet, on the wallet's first
+    // qualifying fill of >= minTradeUsd - a smaller starter trade must never
+    // lock the pack out, so the qualifying notional persists on the ledger
+    // until it can grant. In open mode the grant also waits for a bound email
+    // (the user feed carries the flag); volume accrual is never held.
     const ft = cfg.FIRST_TRADE;
-    if (ft && isNew && firstNotional != null && firstNotional >= (ft.minTradeUsd || 0)) {
-      const want = Math.max(ft.baseTickets, Math.min(ft.maxTickets, ft.baseTickets + Math.floor(firstNotional / ft.plusPerUsd)));
-      const poolLeft = (ft.poolTickets || Infinity) - (s.firstTradePoolUsed || 0);
-      const grant = Math.max(0, Math.min(want, poolLeft));
-      if (grant > 0) {
-        ws.bonusTicketsPending = (ws.bonusTicketsPending || 0) + grant;
-        s.firstTradePoolUsed = (s.firstTradePoolUsed || 0) + grant;
-        console.log(`${w} first-trade unlock: ${grant} bonus ticket(s) pending (first fill $${firstNotional.toFixed(2)}, pool ${s.firstTradePoolUsed}/${ft.poolTickets})`);
-      } else {
-        console.log(`${w} first-trade unlock skipped: season pool exhausted (${ft.poolTickets})`);
+    if (ft) {
+      const granted = !!(ws.packGranted || ws.firstTradeBonus || ws.bonusTicketsPending);
+      if (!granted && activationFill != null) ws.packQualifiedUsd = Math.max(ws.packQualifiedUsd || 0, activationFill);
+      if (!granted && (ws.packQualifiedUsd || 0) >= (ft.minTradeUsd || 0) && (ws.packQualifiedUsd || 0) > 0) {
+        if (!emailBound(w)) {
+          console.log(`${w} activation pack HELD: qualifying trade $${ws.packQualifiedUsd.toFixed(2)} awaits a bound email`);
+        } else {
+          const want = Math.max(ft.baseTickets, Math.min(ft.maxTickets, ft.baseTickets + Math.floor(ws.packQualifiedUsd / ft.plusPerUsd)));
+          const poolLeft = (ft.poolTickets || Infinity) - (s.firstTradePoolUsed || 0);
+          const grant = Math.max(0, Math.min(want, poolLeft));
+          ws.packGranted = true;                     // one shot, even if the pool is gone
+          if (grant > 0) {
+            ws.bonusTicketsPending = (ws.bonusTicketsPending || 0) + grant;
+            s.firstTradePoolUsed = (s.firstTradePoolUsed || 0) + grant;
+            console.log(`${w} activation pack: ${grant} ticket(s) pending (qualifying fill $${ws.packQualifiedUsd.toFixed(2)}, pool ${s.firstTradePoolUsed}/${ft.poolTickets})`);
+          } else {
+            console.log(`${w} activation pack skipped: season pool exhausted (${ft.poolTickets})`);
+          }
+        }
       }
     }
     // streak checkpoints: N distinct trade days this week + cumulative volume
@@ -181,6 +231,7 @@ async function reconcile(s, pub, priceUsd) {
 // ── buy: credit ≥ live ticket price → tickets minted to the trader ─────────
 export async function buy() {
   guard();
+  await ensureFeed();
   const s = load();
   const n = net();
   const chain = cfg.TARGET === 'mainnet' ? base : baseSepolia;
@@ -244,7 +295,7 @@ export async function buy() {
       address: n.randomBuyer, abi: buyerAbi, functionName: 'buyTickets',
       args: [BigInt(count), w, cfg.TREASURY ? [cfg.TREASURY] : [], cfg.TREASURY ? [10n ** 18n] : [], keccak256(toHex(cfg.SOURCE_TAG))],
       gas: 6_500_000n,                  // ~5.4M real usage + 20% headroom
-      maxFeePerGas: 18_000_000n,        // 0.018 gwei cap (Base base fee ~0.006, 3x margin)
+      maxFeePerGas: cfg.MAX_FEE_WEI,    // default 0.018 gwei cap (Base ~0.006); MAX_FEE_GWEI env raises it
       maxPriorityFeePerGas: 500_000n,   // 0.0005 gwei tip
       // upfront reserve = gas*maxFee = 0.000117 ETH; keep the pool wallet's
       // native balance above that or the node rejects the send pre-hash.
