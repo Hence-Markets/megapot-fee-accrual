@@ -27,30 +27,39 @@
     "$excludeZeroFeePairs": "symbols currently running zero-fee promos (no fee revenue \u2192 no credit), e.g. the xyz rebate campaign list"
   },
   "economics": {
-    "feeBps": 4.5,
+    "feeBps": 4.0,
     "rolloverShare": 1.0,
-    "$note": "credit per fill = notional \u00d7 feeBps \u00d7 rolloverShare. Ticket conversion uses the LIVE on-chain ticketPrice() at buy time \u2014 never set a ticket price here."
+    "$note": "4.0bps = Hence's LIVE builder-fee take (verified /api/config hlBuilderFee=40 tenths). Charged on routed orders regardless of maker/taker, so accrual is identical on maker flow. Ticket conversion always uses Megapot's live ticketPrice()."
   },
   "multipliers": {
     "levels": [
       {
         "x": 1,
-        "requires": "Base rate: every qualifying trade counts once."
+        "volumeFactor": 1.0,
+        "requires": "Base rate - every qualifying trade counts."
       },
       {
         "x": 2,
-        "requires": "Trade on 5 distinct days in a week."
+        "volumeFactor": 0.9,
+        "requires": "Run or copy 1 thesis basket."
       },
       {
         "x": 3,
-        "requires": "Hold 2x for 4 straight weeks, plus one basket run held to plan."
+        "volumeFactor": 0.8,
+        "requires": "3 thesis runs this season."
       },
       {
         "x": 4,
-        "requires": "A full season streak plus a published rated thesis."
+        "volumeFactor": 0.7,
+        "requires": "5 thesis runs this season."
+      },
+      {
+        "x": 5,
+        "volumeFactor": 0.5,
+        "requires": "10 thesis runs this season."
       }
     ],
-    "$note": "display + planned logic; engine applies 1.0x until the behavior signals are stitched from the app"
+    "$note": "volumeFactor = share of base volume needed per ticket at that tier (0.50 = half the volume). Engine applies 1x until basket signals are stitched from the app - tier REQUIREMENTS are placeholders for Sarthak to set."
   },
   "caps": {
     "ticketsPerWalletPerDay": 5,
@@ -61,6 +70,95 @@
     "baseTickets": 1,
     "plusPerUsd": 250,
     "maxTickets": 5,
-    "$note": "new-user unlock: first qualifying trade grants baseTickets + floor(notional/plusPerUsd), capped at maxTickets. Converted to credit at the LIVE ticket price in buy()."
+    "minTradeUsd": 250,
+    "poolTickets": 200,
+    "$note": "activation grant: account + email + first qualifying trade of >= minTradeUsd opens the pack; season-wide pool of 200 tickets, first come."
+  },
+  "terms": {
+    "title": "Megapot Rewards - Season 1 rules",
+    "steps": [
+      "Create your Hence account and link a real email.",
+      "Place your first qualifying trade of $250 or more - it opens a 1-5 ticket pack (season pool: 200 tickets).",
+      "Keep trading: 4.0bps of qualifying volume becomes reward credit, maker or taker.",
+      "Streak bonus: trade 3 days with $1,000 cumulative volume for +1 ticket; 5 days and $5,000 for another (20-ticket pool).",
+      "Run thesis baskets to climb tiers - up to 5x, cutting the volume per ticket in half.",
+      "Tickets mint to YOUR wallet. Megapot draws daily - match numbers to win tiered prizes."
+    ],
+    "actions": [
+      {
+        "action": "Sign up + email + first trade >= $250",
+        "reward": "1-5 ticket pack (200-ticket pool)"
+      },
+      {
+        "action": "Qualifying volume (maker or taker)",
+        "reward": "4.0bps rolls into ticket credit"
+      },
+      {
+        "action": "3-day streak, $1k cumulative",
+        "reward": "+1 ticket (20-ticket pool)"
+      },
+      {
+        "action": "5-day streak, $5k cumulative",
+        "reward": "+1 more ticket"
+      },
+      {
+        "action": "Run or copy thesis baskets",
+        "reward": "tiers 2x-5x: mint on 90% down to 50% of the volume"
+      },
+      {
+        "action": "Daily check-in",
+        "reward": "unlocks today's card"
+      }
+    ],
+    "caps": "Up to 5 tickets minted per day and 15 per week per wallet. Earned tickets beyond the caps queue and mint at the daily pace.",
+    "disclosures": [
+      "Tickets are entries in Megapot's daily draw. Winning is chance-based; there is no guaranteed prize.",
+      "Tickets mint non-custodially to your own wallet on Base. Hence never holds your tickets or winnings.",
+      "Prizes, odds, draw mechanics and claims are operated by Megapot under Megapot's terms.",
+      "Reward credit has no cash value and converts only to tickets at Megapot's live ticket price.",
+      "Availability subject to eligibility and jurisdiction. Parameters may be retuned between seasons."
+    ],
+    "megapotTermsUrl": "https://docs.megapot.io/appendix/terms-of-service",
+    "assetTable": {
+      "note": "Volume shown mints ONE ticket at the base 1x tier (4.0bps of volume at the $1 live ticket price). Maker or taker - same accrual. Higher tiers cut the volume needed by their factor.",
+      "categories": [
+        {
+          "key": "hl-perps",
+          "label": "HL perps",
+          "symbols": [
+            "BTC",
+            "ETH",
+            "SOL",
+            "HYPE"
+          ],
+          "volumePerTicketUsd": 2500
+        },
+        {
+          "key": "xyz-equities",
+          "label": "xyz equities",
+          "symbols": [
+            "NVDA",
+            "TSLA"
+          ],
+          "volumePerTicketUsd": 2500
+        }
+      ]
+    }
+  },
+  "streak": {
+    "poolTickets": 20,
+    "checkpoints": [
+      {
+        "day": 3,
+        "minCumulativeUsd": 1000,
+        "tickets": 1
+      },
+      {
+        "day": 5,
+        "minCumulativeUsd": 5000,
+        "tickets": 1
+      }
+    ],
+    "$note": "trade-day streak within the week: at day N with >= min cumulative qualifying volume, +tickets once per week; shared 20-ticket season pool."
   }
 }

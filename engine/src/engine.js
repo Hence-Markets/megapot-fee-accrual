@@ -84,15 +84,53 @@ export async function accrue() {
       const notional = Number(f.px) * Number(f.sz);
       if (firstNotional == null) firstNotional = notional;
       vol += notional;
+      const dstr = new Date(f.time).toISOString().slice(0, 10);
+      (ws.days ??= {})[dstr] = (ws.days[dstr] || 0) + notional;
       ws.lastFillMs = Math.max(ws.lastFillMs, f.time);
     }
     // new-user unlock: the FIRST qualifying trade opens a 1-5 ticket pack.
     // Ticket count is fixed here (deterministic from the fill); the dollar
     // conversion waits for buy(), which knows the live ticket price.
     const ft = cfg.FIRST_TRADE;
-    if (ft && isNew && firstNotional != null) {
-      ws.bonusTicketsPending = Math.max(ft.baseTickets, Math.min(ft.maxTickets, ft.baseTickets + Math.floor(firstNotional / ft.plusPerUsd)));
-      console.log(`${w} first-trade unlock: ${ws.bonusTicketsPending} bonus ticket(s) pending (first fill $${firstNotional.toFixed(2)})`);
+    if (ft && isNew && firstNotional != null && firstNotional >= (ft.minTradeUsd || 0)) {
+      const want = Math.max(ft.baseTickets, Math.min(ft.maxTickets, ft.baseTickets + Math.floor(firstNotional / ft.plusPerUsd)));
+      const poolLeft = (ft.poolTickets || Infinity) - (s.firstTradePoolUsed || 0);
+      const grant = Math.max(0, Math.min(want, poolLeft));
+      if (grant > 0) {
+        ws.bonusTicketsPending = (ws.bonusTicketsPending || 0) + grant;
+        s.firstTradePoolUsed = (s.firstTradePoolUsed || 0) + grant;
+        console.log(`${w} first-trade unlock: ${grant} bonus ticket(s) pending (first fill $${firstNotional.toFixed(2)}, pool ${s.firstTradePoolUsed}/${ft.poolTickets})`);
+      } else {
+        console.log(`${w} first-trade unlock skipped: season pool exhausted (${ft.poolTickets})`);
+      }
+    }
+    // streak checkpoints: N distinct trade days this week + cumulative volume
+    // gate -> one-time grant per checkpoint per week, from a shared season pool.
+    const st = cfg.STREAK;
+    if (st && ws.days) {
+      const nowD = new Date(); const dow = (nowD.getUTCDay() + 6) % 7;
+      nowD.setUTCHours(0, 0, 0, 0);
+      const mondayMs = nowD.getTime() - dow * 86400000;
+      const weekKey = new Date(mondayMs).toISOString().slice(0, 10);
+      let daysCount = 0, cum = 0;
+      for (const [d, v] of Object.entries(ws.days)) {
+        if (new Date(d + 'T00:00:00Z').getTime() >= mondayMs && v > 0) { daysCount++; cum += v; }
+      }
+      const g = ((ws.streakGrants ??= {})[weekKey] ??= {});
+      for (const cp of st.checkpoints || []) {
+        const key = 'd' + cp.day;
+        const poolLeft = (st.poolTickets || Infinity) - (s.streakPoolUsed || 0);
+        if (!g[key] && daysCount >= cp.day && cum >= cp.minCumulativeUsd && poolLeft >= cp.tickets) {
+          ws.bonusTicketsPending = (ws.bonusTicketsPending || 0) + cp.tickets;
+          s.streakPoolUsed = (s.streakPoolUsed || 0) + cp.tickets;
+          g[key] = true;
+          console.log(`${w} streak d${cp.day} grant: +${cp.tickets} ticket(s) (days ${daysCount}, cum $${cum.toFixed(0)}, pool ${s.streakPoolUsed}/${st.poolTickets})`);
+        }
+      }
+      // prune day entries older than 14 days so the ledger stays small
+      for (const d of Object.keys(ws.days)) {
+        if (new Date(d + 'T00:00:00Z').getTime() < mondayMs - 14 * 86400000) delete ws.days[d];
+      }
     }
     const credit = vol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER;
     ws.volumeUsd += vol;
