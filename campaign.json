@@ -72,7 +72,8 @@
     "maxTickets": 5,
     "minTradeUsd": 250,
     "poolTickets": 200,
-    "$note": "activation grant: account + email + first qualifying trade of >= minTradeUsd opens the pack; season-wide pool of 200 tickets, first come."
+    "$note": "activation grant: account + email + first qualifying trade of >= minTradeUsd opens the pack; season-wide pool of 200 tickets, first come. At most dailyMintCap activation tickets mint per UTC day across ALL users; later activations defer to the next day.",
+    "dailyMintCap": 30
   },
   "terms": {
     "title": "Megapot Rewards - Season 1 rules",
@@ -110,7 +111,7 @@
         "reward": "unlocks today's card"
       }
     ],
-    "caps": "Up to 5 tickets minted per day and 15 per week per wallet. Earned tickets beyond the caps queue and mint at the daily pace.",
+    "caps": "Up to 5 tickets minted per day and 15 per week per wallet. Earned tickets beyond the caps queue and mint at the daily pace. Activation packs mint at most 30 tickets per day across all users - later activations mint the next day.",
     "disclosures": [
       "Tickets are entries in Megapot's daily draw. Winning is chance-based; there is no guaranteed prize.",
       "Tickets mint non-custodially to your own wallet on Base. Hence never holds your tickets or winnings.",

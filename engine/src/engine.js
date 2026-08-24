@@ -121,7 +121,7 @@ export async function accrue() {
         const key = 'd' + cp.day;
         const poolLeft = (st.poolTickets || Infinity) - (s.streakPoolUsed || 0);
         if (!g[key] && daysCount >= cp.day && cum >= cp.minCumulativeUsd && poolLeft >= cp.tickets) {
-          ws.bonusTicketsPending = (ws.bonusTicketsPending || 0) + cp.tickets;
+          ws.streakTicketsPending = (ws.streakTicketsPending || 0) + cp.tickets;
           s.streakPoolUsed = (s.streakPoolUsed || 0) + cp.tickets;
           g[key] = true;
           console.log(`${w} streak d${cp.day} grant: +${cp.tickets} ticket(s) (days ${daysCount}, cum $${cum.toFixed(0)}, pool ${s.streakPoolUsed}/${st.poolTickets})`);
@@ -193,11 +193,26 @@ export async function buy() {
 
   for (const w of eligibleWallets()) {
     const ws = wstate(s, w);
+    if (ws.streakTicketsPending > 0) {
+      ws.creditUsdc += ws.streakTicketsPending * priceUsd;
+      console.log(`${w} streak grant credited: ${ws.streakTicketsPending} ticket(s) at $${priceUsd}`);
+      ws.streakTicketsPending = 0;
+    }
     if (ws.bonusTicketsPending > 0) {
-      ws.creditUsdc += ws.bonusTicketsPending * priceUsd;
-      ws.firstTradeBonus = { tickets: ws.bonusTicketsPending, priceUsd, grantedMs: Date.now() };
-      console.log(`${w} first-trade bonus credited: ${ws.bonusTicketsPending} ticket(s) at $${priceUsd}`);
-      ws.bonusTicketsPending = 0;
+      const ftCap = cfg.FIRST_TRADE && cfg.FIRST_TRADE.dailyMintCap;
+      if (ftCap && s.ftMintDay !== day) { s.ftMintDay = day; s.ftMintUsed = 0; }
+      const room = ftCap ? Math.max(0, ftCap - (s.ftMintUsed || 0)) : ws.bonusTicketsPending;
+      const conv = Math.min(ws.bonusTicketsPending, room);
+      if (conv > 0) {
+        ws.creditUsdc += conv * priceUsd;
+        s.ftMintUsed = (s.ftMintUsed || 0) + conv;
+        ws.firstTradeBonus = { tickets: conv, priceUsd, grantedMs: Date.now() };
+        ws.bonusTicketsPending -= conv;
+        console.log(`${w} first-trade bonus credited: ${conv} ticket(s) (day gate ${s.ftMintUsed}/${ftCap || '-'})`);
+      }
+      if (ws.bonusTicketsPending > 0) {
+        console.log(`${w} first-trade bonus DEFERRED: ${ws.bonusTicketsPending} ticket(s) wait for tomorrow (day gate full)`);
+      }
     }
     const affordable = Math.floor(ws.creditUsdc / priceUsd);
     const dayCount = ws.tickets[day] || 0;
