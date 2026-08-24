@@ -243,9 +243,11 @@ export async function buy() {
     const h2 = await wallet.writeContract({
       address: n.randomBuyer, abi: buyerAbi, functionName: 'buyTickets',
       args: [BigInt(count), w, cfg.TREASURY ? [cfg.TREASURY] : [], cfg.TREASURY ? [10n ** 18n] : [], keccak256(toHex(cfg.SOURCE_TAG))],
-      gas: 8_000_000n,
-      maxFeePerGas: 25_000_000n,        // 0.025 gwei cap - Base runs ~0.006
-      maxPriorityFeePerGas: 1_000_000n, // 0.001 gwei tip
+      gas: 6_500_000n,                  // ~5.4M real usage + 20% headroom
+      maxFeePerGas: 18_000_000n,        // 0.018 gwei cap (Base base fee ~0.006, 3x margin)
+      maxPriorityFeePerGas: 500_000n,   // 0.0005 gwei tip
+      // upfront reserve = gas*maxFee = 0.000117 ETH; keep the pool wallet's
+      // native balance above that or the node rejects the send pre-hash.
     });
     const rc = await pub.waitForTransactionReceipt({ hash: h2 });
     // a mined-but-REVERTED buy must not touch the ledger: unchecked status
