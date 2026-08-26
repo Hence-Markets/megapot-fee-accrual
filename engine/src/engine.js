@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { createPublicClient, createWalletClient, http, formatUnits, keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
@@ -140,14 +141,24 @@ export async function accrue() {
         if (!emailBound(w)) {
           console.log(`${w} activation pack HELD: qualifying trade $${ws.packQualifiedUsd.toFixed(2)} awaits a bound email`);
         } else {
-          const want = Math.max(ft.baseTickets, Math.min(ft.maxTickets, ft.baseTickets + Math.floor(ws.packQualifiedUsd / ft.plusPerUsd)));
+          // pack size is DRAWN AT RANDOM from a fixed season pool: 150 pack
+          // slots totalling exactly 200 tickets, drawn without replacement
+          // (the persisted slot counts ARE the odds - they deplete, so the
+          // pool can never overshoot and late users still get fair draws).
+          const slots = (s.packSlots ??= Object.fromEntries((ft.distribution || []).map((d) => [d.tickets, d.slots])));
+          const entries = Object.entries(slots).filter(([, n]) => n > 0);
+          const slotsLeft = entries.reduce((a, [, n]) => a + n, 0);
           const poolLeft = (ft.poolTickets || Infinity) - (s.firstTradePoolUsed || 0);
-          const grant = Math.max(0, Math.min(want, poolLeft));
           ws.packGranted = true;                     // one shot, even if the pool is gone
-          if (grant > 0) {
+          if (slotsLeft > 0 && poolLeft > 0) {
+            let pick = crypto.randomInt(slotsLeft);
+            let size = Number(entries[0][0]);
+            for (const [k, n] of entries) { if (pick < n) { size = Number(k); break; } pick -= n; }
+            slots[size] -= 1;
+            const grant = Math.min(size, poolLeft);
             ws.bonusTicketsPending = (ws.bonusTicketsPending || 0) + grant;
             s.firstTradePoolUsed = (s.firstTradePoolUsed || 0) + grant;
-            console.log(`${w} activation pack: ${grant} ticket(s) pending (qualifying fill $${ws.packQualifiedUsd.toFixed(2)}, pool ${s.firstTradePoolUsed}/${ft.poolTickets})`);
+            console.log(`${w} activation pack: drew ${grant} ticket(s) (qualifying fill $${ws.packQualifiedUsd.toFixed(2)}, pool ${s.firstTradePoolUsed}/${ft.poolTickets}, slots left ${slotsLeft - 1})`);
           } else {
             console.log(`${w} activation pack skipped: season pool exhausted (${ft.poolTickets})`);
           }
