@@ -4,7 +4,7 @@ import { createPublicClient, createWalletClient, http, formatUnits, keccak256, t
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
 import { cfg, net, jackpotAbi, buyerAbi, erc20Abi } from './config.js';
-import { cioTrack, cioEnabled } from './cio.js';
+import { track, commsEnabled } from './comms.js';
 
 // Eligible set per the feature-gates conventions: whitelist = pre-production
 // cohort; empty whitelist = open mode, full user feed. Pause = ACTIVE=0.
@@ -160,7 +160,7 @@ export async function accrue() {
             ws.bonusTicketsPending = (ws.bonusTicketsPending || 0) + grant;
             s.firstTradePoolUsed = (s.firstTradePoolUsed || 0) + grant;
             console.log(`${w} activation pack: drew ${grant} ticket(s) (qualifying fill $${ws.packQualifiedUsd.toFixed(2)}, pool ${s.firstTradePoolUsed}/${ft.poolTickets}, slots left ${slotsLeft - 1})`);
-            await cioTrack(w, 'megapot_activation_pack', { tickets: grant, qualifyingUsd: Math.round(ws.packQualifiedUsd) });
+            await track(w, 'megapot_activation_pack', { tickets: grant, qualifyingUsd: Math.round(ws.packQualifiedUsd) });
           } else {
             console.log(`${w} activation pack skipped: season pool exhausted (${ft.poolTickets})`);
           }
@@ -188,7 +188,7 @@ export async function accrue() {
           s.streakPoolUsed = (s.streakPoolUsed || 0) + cp.tickets;
           g[key] = true;
           console.log(`${w} streak d${cp.day} grant: +${cp.tickets} ticket(s) (days ${daysCount}, cum $${cum.toFixed(0)}, pool ${s.streakPoolUsed}/${st.poolTickets})`);
-          await cioTrack(w, 'megapot_streak_ticket', { day: cp.day, tickets: cp.tickets, weekVolumeUsd: Math.round(cum) });
+          await track(w, 'megapot_streak_ticket', { day: cp.day, tickets: cp.tickets, weekVolumeUsd: Math.round(cum) });
         }
       }
       // one event per NEW distinct trade day - the anchor Customer.io
@@ -197,7 +197,7 @@ export async function accrue() {
         if (v <= 0 || new Date(d + 'T00:00:00Z').getTime() < mondayMs) continue;
         if ((ws.cioDays ??= {})[d]) continue;
         ws.cioDays[d] = true;
-        await cioTrack(w, 'megapot_streak_day', { dateUtc: d, dayOfWeekCount: daysCount, weekVolumeUsd: Math.round(cum) });
+        await track(w, 'megapot_streak_day', { dateUtc: d, dayOfWeekCount: daysCount, weekVolumeUsd: Math.round(cum) });
       }
       for (const d of Object.keys(ws.cioDays || {})) {
         if (new Date(d + 'T00:00:00Z').getTime() < mondayMs - 14 * 86400000) delete ws.cioDays[d];
@@ -337,7 +337,7 @@ export async function buy() {
     s.spentUsdc += count * priceUsd;
     (s.purchases ??= []).push({ ts: Date.now(), wallet: w, day, count, priceUsd, drawing: drawing.toString(), tx: rc.transactionHash, verified: false });
     console.log(`${w} bought ${count} ticket(s) → tx ${rc.transactionHash}`);
-    await cioTrack(w, 'megapot_tickets_minted', { count, txHash: rc.transactionHash });
+    await track(w, 'megapot_tickets_minted', { count, txHash: rc.transactionHash });
   }
   save(s);
   return s;
@@ -365,7 +365,7 @@ function guard() {
 // the "you won - claim it" reminder workflows. Runs only when Customer.io is
 // configured; the venue API is public and the sweep never touches the wire.
 export async function winSweep() {
-  if (!cioEnabled()) return;
+  if (!commsEnabled()) return;
   guard();
   await ensureFeed();
   const s = load();
@@ -386,10 +386,10 @@ export async function winSweep() {
       const seen = (ws.cioWins ??= {})[id];
       if (!seen && t.claimed === false) {
         ws.cioWins[id] = 'notified';
-        await cioTrack(w, 'megapot_win_unclaimed', { usd: Number(usd.toFixed(2)), round: String(t.round_id ?? ''), ticketId: id });
+        await track(w, 'megapot_win_unclaimed', { usd: Number(usd.toFixed(2)), round: String(t.round_id ?? ''), ticketId: id });
       } else if (seen === 'notified' && t.claimed === true) {
         ws.cioWins[id] = 'claimed';
-        await cioTrack(w, 'megapot_win_claimed', { usd: Number(usd.toFixed(2)), round: String(t.round_id ?? ''), ticketId: id });
+        await track(w, 'megapot_win_claimed', { usd: Number(usd.toFixed(2)), round: String(t.round_id ?? ''), ticketId: id });
       }
     }
   }

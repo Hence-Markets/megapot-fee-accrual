@@ -88,6 +88,11 @@ export const cfg = {
   // Customer.io Track credentials - comms events; missing = integration off
   CIO_SITE_ID: process.env.CUSTOMERIO_SITE_ID || '',
   CIO_TRACK_KEY: process.env.CUSTOMERIO_TRACK_KEY || '',
+  // PostHog server-side capture - campaign events mirror here for monitoring
+  // default = the project's PUBLIC capture key (same literal serve.py ships);
+  // a write-only key, safe in a public repo. Env overrides for other projects.
+  POSTHOG_KEY: process.env.POSTHOG_KEY || 'phc_aTmNUwA7ztsNYNXpkRDUCaEvZXB8SeHYUMOr1my6tnl',
+  POSTHOG_HOST: (process.env.POSTHOG_HOST || 'https://us.i.posthog.com').replace(/\/$/, ''),
   TREASURY: (process.env.TREASURY || '').toLowerCase(), // Megapot referrer — referral fees recycle
   PRIVATE_KEY: process.env.PRIVATE_KEY || '',           // pool hot wallet (capped)
   SOURCE_TAG: 'hence-fee-accrual',
