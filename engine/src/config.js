@@ -85,6 +85,9 @@ export const cfg = {
   // buy-tx fee ceiling: raise via MAX_FEE_GWEI when Base runs hot - buys stall
   // (retrying each cycle) while the base fee sits above this cap.
   MAX_FEE_WEI: BigInt(Math.round(Number(process.env.MAX_FEE_GWEI || 0.018) * 1e9)),
+  // Customer.io Track credentials - comms events; missing = integration off
+  CIO_SITE_ID: process.env.CUSTOMERIO_SITE_ID || '',
+  CIO_TRACK_KEY: process.env.CUSTOMERIO_TRACK_KEY || '',
   TREASURY: (process.env.TREASURY || '').toLowerCase(), // Megapot referrer — referral fees recycle
   PRIVATE_KEY: process.env.PRIVATE_KEY || '',           // pool hot wallet (capped)
   SOURCE_TAG: 'hence-fee-accrual',

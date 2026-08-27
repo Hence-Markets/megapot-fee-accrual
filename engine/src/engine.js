@@ -4,6 +4,7 @@ import { createPublicClient, createWalletClient, http, formatUnits, keccak256, t
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
 import { cfg, net, jackpotAbi, buyerAbi, erc20Abi } from './config.js';
+import { cioTrack, cioEnabled } from './cio.js';
 
 // Eligible set per the feature-gates conventions: whitelist = pre-production
 // cohort; empty whitelist = open mode, full user feed. Pause = ACTIVE=0.
@@ -159,6 +160,7 @@ export async function accrue() {
             ws.bonusTicketsPending = (ws.bonusTicketsPending || 0) + grant;
             s.firstTradePoolUsed = (s.firstTradePoolUsed || 0) + grant;
             console.log(`${w} activation pack: drew ${grant} ticket(s) (qualifying fill $${ws.packQualifiedUsd.toFixed(2)}, pool ${s.firstTradePoolUsed}/${ft.poolTickets}, slots left ${slotsLeft - 1})`);
+            await cioTrack(w, 'megapot_activation_pack', { tickets: grant, qualifyingUsd: Math.round(ws.packQualifiedUsd) });
           } else {
             console.log(`${w} activation pack skipped: season pool exhausted (${ft.poolTickets})`);
           }
@@ -186,7 +188,19 @@ export async function accrue() {
           s.streakPoolUsed = (s.streakPoolUsed || 0) + cp.tickets;
           g[key] = true;
           console.log(`${w} streak d${cp.day} grant: +${cp.tickets} ticket(s) (days ${daysCount}, cum $${cum.toFixed(0)}, pool ${s.streakPoolUsed}/${st.poolTickets})`);
+          await cioTrack(w, 'megapot_streak_ticket', { day: cp.day, tickets: cp.tickets, weekVolumeUsd: Math.round(cum) });
         }
+      }
+      // one event per NEW distinct trade day - the anchor Customer.io
+      // workflows wait on to send "trade today or the streak resets"
+      for (const [d, v] of Object.entries(ws.days)) {
+        if (v <= 0 || new Date(d + 'T00:00:00Z').getTime() < mondayMs) continue;
+        if ((ws.cioDays ??= {})[d]) continue;
+        ws.cioDays[d] = true;
+        await cioTrack(w, 'megapot_streak_day', { dateUtc: d, dayOfWeekCount: daysCount, weekVolumeUsd: Math.round(cum) });
+      }
+      for (const d of Object.keys(ws.cioDays || {})) {
+        if (new Date(d + 'T00:00:00Z').getTime() < mondayMs - 14 * 86400000) delete ws.cioDays[d];
       }
       // prune day entries older than 14 days so the ledger stays small
       for (const d of Object.keys(ws.days)) {
@@ -323,6 +337,7 @@ export async function buy() {
     s.spentUsdc += count * priceUsd;
     (s.purchases ??= []).push({ ts: Date.now(), wallet: w, day, count, priceUsd, drawing: drawing.toString(), tx: rc.transactionHash, verified: false });
     console.log(`${w} bought ${count} ticket(s) → tx ${rc.transactionHash}`);
+    await cioTrack(w, 'megapot_tickets_minted', { count, txHash: rc.transactionHash });
   }
   save(s);
   return s;
@@ -341,4 +356,42 @@ function guard() {
   if (!cfg.START_MS) throw new Error('START_MS is required - set the campaign start before running (historical fills must never credit).');
   if (!cfg.DRY_RUN && !cfg.PRIVATE_KEY) throw new Error('LIVE mode needs PRIVATE_KEY (the capped pool wallet).');
   if (!cfg.DRY_RUN && cfg.TARGET === 'mainnet' && !cfg.TREASURY) throw new Error('LIVE mainnet needs TREASURY set.');
+}
+
+
+// ── win sweep: venue-observed winnings → Customer.io events ────────────────
+// Once per ticket id (ledger-marked): 'megapot_win_unclaimed' when a win shows
+// with claimed=false, 'megapot_win_claimed' when the claim flips true. Powers
+// the "you won - claim it" reminder workflows. Runs only when Customer.io is
+// configured; the venue API is public and the sweep never touches the wire.
+export async function winSweep() {
+  if (!cioEnabled()) return;
+  guard();
+  await ensureFeed();
+  const s = load();
+  for (const w of eligibleWallets()) {
+    const ws = wstate(s, w);
+    let rows = [];
+    try {
+      const r = await fetch(`https://api.megapot.io/v1/wallets/${w}/tickets`, { signal: AbortSignal.timeout(8000) });
+      const j = await r.json();
+      rows = Array.isArray(j?.data) ? j.data : [];
+    } catch { continue; }                       // venue hiccup: next cycle retries
+    for (const t of rows) {
+      const wa = t.winnings_amount;
+      const usd = wa && typeof wa === 'object' ? Number(wa.amount || 0) / 10 ** (wa.decimals ?? 6) : Number(wa || 0) / 1e6;
+      if (!(usd > 0)) continue;
+      const id = String(t.user_ticket_id ?? t.tx_hash ?? '');
+      if (!id) continue;
+      const seen = (ws.cioWins ??= {})[id];
+      if (!seen && t.claimed === false) {
+        ws.cioWins[id] = 'notified';
+        await cioTrack(w, 'megapot_win_unclaimed', { usd: Number(usd.toFixed(2)), round: String(t.round_id ?? ''), ticketId: id });
+      } else if (seen === 'notified' && t.claimed === true) {
+        ws.cioWins[id] = 'claimed';
+        await cioTrack(w, 'megapot_win_claimed', { usd: Number(usd.toFixed(2)), round: String(t.round_id ?? ''), ticketId: id });
+      }
+    }
+  }
+  save(s);
 }
