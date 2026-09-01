@@ -138,6 +138,11 @@ export async function accrue() {
     if (ft) {
       const granted = !!(ws.packGranted || ws.firstTradeBonus || ws.bonusTicketsPending);
       if (!granted && activationFill != null) ws.packQualifiedUsd = Math.max(ws.packQualifiedUsd || 0, activationFill);
+      // TnC: a single $250 fill OR $250 of COMBINED in-window volume qualifies -
+      // small traders reach the pack by adding up, not only by one big trade.
+      if (!granted && ((ws.volumeUsd || 0) + vol) >= (ft.minTradeUsd || 0)) {
+        ws.packQualifiedUsd = Math.max(ws.packQualifiedUsd || 0, (ws.volumeUsd || 0) + vol);
+      }
       if (!granted && (ws.packQualifiedUsd || 0) >= (ft.minTradeUsd || 0) && (ws.packQualifiedUsd || 0) > 0) {
         if (!emailBound(w)) {
           console.log(`${w} activation pack HELD: qualifying trade $${ws.packQualifiedUsd.toFixed(2)} awaits a bound email`);
