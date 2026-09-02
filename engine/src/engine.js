@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { rollStreakBox, boxFor } from './streakBox.js';
 import { dailyStatus, attrs, shouldEmit } from './lifecycle.js';
 import { cioIdentify } from './cio.js';
+import { readLedger, writeLedger, acquireLock, isHenceFill } from './ledger.js';
 import { createPublicClient, createWalletClient, http, formatUnits, keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
@@ -25,7 +26,7 @@ const _parseRows = (rows) => {
     const w = String(obj ? row.wallet : row).trim().toLowerCase();
     if (!/^0x[a-f0-9]{40}$/.test(w)) continue;    // malformed entries drop - never match
     wallets.push(w);
-    emailBound[w] = obj ? !!(row.emailBound ?? row.email_bound) : true;
+    emailBound[w] = obj ? !!(row.emailBound ?? row.email_bound) : false;   // a bare address proves nothing
   }
   return { wallets, emailBound };
 };
@@ -67,17 +68,19 @@ const LEGACY_STATE = 'state/ledger.json';
 // One JSON file: per-wallet fee credit (USDC, 6dp int), checkpoint of the last
 // fill time already counted, tickets bought per day, lifetime spend.
 export function load() {
-  try { return JSON.parse(fs.readFileSync(STATE, 'utf8')); }
-  catch {
+  return readLedger(STATE, () => {
     if (cfg.TARGET === 'testnet') {
       try { return JSON.parse(fs.readFileSync(LEGACY_STATE, 'utf8')); } catch { /* fresh */ }
     }
     return { wallets: {}, spentUsdc: 0 };
-  }
+  });
 }
-export function save(s) {
-  fs.mkdirSync('state', { recursive: true });
-  fs.writeFileSync(STATE, JSON.stringify(s, null, 2));
+export function save(s) { writeLedger(STATE, s); }
+// comms are emitted AFTER the ledger that records them is on disk - a
+// crash between "WON +3" and save must never send an email the replay
+// then contradicts
+async function flush(emits) {
+  for (const [w, name, data] of emits.splice(0)) await track(w, name, data);
 }
 const wstate = (s, w) => (s.wallets[w] ??= { creditUsdc: 0, lastFillMs: cfg.START_MS, volumeUsd: 0, tickets: {} });
 
@@ -93,7 +96,7 @@ async function fills(wallet, sinceMs) {
     if (!r.ok) throw new Error(`HL info ${r.status}`);
     const batch = await r.json();
     if (!Array.isArray(batch) || !batch.length) break;
-    out.push(...batch);
+    out.push(...batch.filter((f) => isHenceFill(f, cfg.REQUIRE_BUILDER_FEE)));
     if (batch.length < 2000) break;
     start = batch[batch.length - 1].time;
   }
@@ -117,8 +120,15 @@ const qualifies = (coin, timeMs) => {
 export async function accrue() {
   guard();
   await ensureFeed();
+  const release = acquireLock(STATE);
+  try { await accrueInner(); } finally { release(); }
+}
+async function accrueInner() {
   const s = load();
+  const emits = [];
+  const grantsOpen = !cfg.END_MS || Date.now() <= cfg.END_MS;   // no new packs/boxes after the season
   for (const w of eligibleWallets()) {
+   try {
     const ws = wstate(s, w);
     const fs_ = await fills(w, ws.lastFillMs);
     let vol = 0, activationFill = null;
@@ -146,9 +156,10 @@ export async function accrue() {
       if (!granted && ((ws.volumeUsd || 0) + vol) >= (ft.minTradeUsd || 0)) {
         ws.packQualifiedUsd = Math.max(ws.packQualifiedUsd || 0, (ws.volumeUsd || 0) + vol);
       }
-      if (!granted && (ws.packQualifiedUsd || 0) >= (ft.minTradeUsd || 0) && (ws.packQualifiedUsd || 0) > 0) {
+      if (grantsOpen && !granted && (ws.packQualifiedUsd || 0) >= (ft.minTradeUsd || 0) && (ws.packQualifiedUsd || 0) > 0) {
         if (!emailBound(w)) {
           console.log(`${w} activation pack HELD: qualifying trade $${ws.packQualifiedUsd.toFixed(2)} awaits a bound email`);
+          if (!ws.packHeldNotified) { ws.packHeldNotified = true; emits.push([w, 'megapot_pack_held', { qualifyingUsd: Math.round(ws.packQualifiedUsd), reason: 'email' }]); }
         } else {
           // pack size is DRAWN AT RANDOM from a fixed season pool: 150 pack
           // slots totalling exactly 200 tickets, drawn without replacement
@@ -168,7 +179,7 @@ export async function accrue() {
             ws.bonusTicketsPending = (ws.bonusTicketsPending || 0) + grant;
             s.firstTradePoolUsed = (s.firstTradePoolUsed || 0) + grant;
             console.log(`${w} activation pack: drew ${grant} ticket(s) (qualifying fill $${ws.packQualifiedUsd.toFixed(2)}, pool ${s.firstTradePoolUsed}/${ft.poolTickets}, slots left ${slotsLeft - 1})`);
-            await track(w, 'megapot_activation_pack', { tickets: grant, qualifyingUsd: Math.round(ws.packQualifiedUsd) });
+            emits.push([w, 'megapot_activation_pack', { tickets: grant, qualifyingUsd: Math.round(ws.packQualifiedUsd) }]);
           } else {
             console.log(`${w} activation pack skipped: season pool exhausted (${ft.poolTickets})`);
           }
@@ -178,6 +189,33 @@ export async function accrue() {
     // streak checkpoints: N distinct trade days this week + cumulative volume
     // gate -> one-time grant per checkpoint per week, from a shared season pool.
     const st = cfg.STREAK;
+    const sb = cfg.STREAK_BOX;
+    // STREAK BOX: one surprise box per distinct qualifying trade day across
+    // the whole campaign (day N = Nth such day since START_MS). Rolled once,
+    // recorded in ws.boxes so a replay never re-rolls. Shared season pool.
+    // A day counts once its Hence volume reaches minDayUsd - not on a $1 fill.
+    if (sb && ws.days && grantsOpen) {
+      const boxes = (ws.boxes ??= {});
+      const matrix = Array.isArray(sb.matrix) && sb.matrix.length >= 1 && sb.matrix.every((b) => b && b.p >= 0 && b.p <= 1 && b.size >= 0) ? sb.matrix : undefined;
+      const startDay = new Date(cfg.START_MS || 0).toISOString().slice(0, 10);
+      const minDay = Number(sb.minDayUsd || 0);
+      const newDays = Object.entries(ws.days).filter(([d, v]) => v >= Math.max(minDay, 1e-9) && d >= startDay && !boxes[d]).map(([d]) => d).sort();
+      for (const d of newDays) {
+        const dayN = Object.keys(boxes).length + 1;
+        const poolLeft = (sb.poolTickets || Infinity) - (s.streakBoxPoolUsed || 0);
+        const roll = rollStreakBox(dayN, () => crypto.randomInt(1_000_000) / 1_000_000, matrix);
+        const grant = roll.won ? Math.min(roll.tickets, Math.max(0, poolLeft)) : 0;
+        boxes[d] = { day: dayN, won: roll.won, tickets: grant };
+        if (grant > 0) {
+          ws.streakTicketsPending = (ws.streakTicketsPending || 0) + grant;
+          s.streakBoxPoolUsed = (s.streakBoxPoolUsed || 0) + grant;
+        }
+        console.log(`${w} streak box day ${dayN} (${d}): ${roll.won ? `WON +${grant}` : 'empty'} (p ${roll.p}, size ${roll.size}, pool ${s.streakBoxPoolUsed || 0}/${sb.poolTickets})`);
+        const nb = boxFor(dayN + 1, matrix);
+        emits.push([w, 'megapot_streak_box', { day: dayN, dateUtc: d, won: roll.won, tickets: grant, p: roll.p, size: roll.size,
+          nextDay: dayN + 1, nextP: nb.p, nextSize: nb.size }]);
+      }
+    }
     if (st && ws.days) {
       const nowD = new Date(); const dow = (nowD.getUTCDay() + 6) % 7;
       nowD.setUTCHours(0, 0, 0, 0);
@@ -187,31 +225,9 @@ export async function accrue() {
       for (const [d, v] of Object.entries(ws.days)) {
         if (new Date(d + 'T00:00:00Z').getTime() >= mondayMs && v > 0) { daysCount++; cum += v; }
       }
-      // STREAK BOX: one surprise box per distinct qualifying trade day across
-      // the whole campaign (day N = Nth such day since START_MS). Rolled once,
-      // recorded in ws.boxes so a replay never re-rolls. Shared season pool.
-      const sb = cfg.STREAK_BOX;
-      if (sb) {
-        const boxes = (ws.boxes ??= {});
-        const startDay = new Date(cfg.START_MS || 0).toISOString().slice(0, 10);
-        const newDays = Object.entries(ws.days).filter(([d, v]) => v > 0 && d >= startDay && !boxes[d]).map(([d]) => d).sort();
-        for (const d of newDays) {
-          const dayN = Object.keys(boxes).length + 1;
-          const poolLeft = (sb.poolTickets || Infinity) - (s.streakBoxPoolUsed || 0);
-          const roll = rollStreakBox(dayN, () => crypto.randomInt(1_000_000) / 1_000_000);
-          const grant = roll.won ? Math.min(roll.tickets, Math.max(0, poolLeft)) : 0;
-          boxes[d] = { day: dayN, won: roll.won, tickets: grant };
-          if (grant > 0) {
-            ws.streakTicketsPending = (ws.streakTicketsPending || 0) + grant;
-            s.streakBoxPoolUsed = (s.streakBoxPoolUsed || 0) + grant;
-          }
-          console.log(`${w} streak box day ${dayN} (${d}): ${roll.won ? `WON +${grant}` : 'empty'} (p ${roll.p}, size ${roll.size}, pool ${s.streakBoxPoolUsed || 0}/${sb.poolTickets})`);
-          await track(w, 'megapot_streak_box', { day: dayN, dateUtc: d, won: roll.won, tickets: grant, p: roll.p, size: roll.size,
-            nextDay: dayN + 1, nextP: boxFor(dayN + 1).p, nextSize: boxFor(dayN + 1).size });
-        }
-      }
-      const g = ((ws.streakGrants ??= {})[weekKey] ??= {});
-      for (const cp of (sb ? [] : (st.checkpoints || []))) {
+      // legacy checkpoints only while boxes are off - no stale weekly state otherwise
+      const g = sb ? {} : ((ws.streakGrants ??= {})[weekKey] ??= {});
+      for (const cp of (sb || !grantsOpen ? [] : (st.checkpoints || []))) {
         const key = 'd' + cp.day;
         const poolLeft = (st.poolTickets || Infinity) - (s.streakPoolUsed || 0);
         if (!g[key] && daysCount >= cp.day && cum >= cp.minCumulativeUsd && poolLeft >= cp.tickets) {
@@ -219,7 +235,7 @@ export async function accrue() {
           s.streakPoolUsed = (s.streakPoolUsed || 0) + cp.tickets;
           g[key] = true;
           console.log(`${w} streak d${cp.day} grant: +${cp.tickets} ticket(s) (days ${daysCount}, cum $${cum.toFixed(0)}, pool ${s.streakPoolUsed}/${st.poolTickets})`);
-          await track(w, 'megapot_streak_ticket', { day: cp.day, tickets: cp.tickets, weekVolumeUsd: Math.round(cum) });
+          emits.push([w, 'megapot_streak_ticket', { day: cp.day, tickets: cp.tickets, weekVolumeUsd: Math.round(cum) }]);
         }
       }
       // one event per NEW distinct trade day - the anchor Customer.io
@@ -228,7 +244,7 @@ export async function accrue() {
         if (v <= 0 || new Date(d + 'T00:00:00Z').getTime() < mondayMs) continue;
         if ((ws.cioDays ??= {})[d]) continue;
         ws.cioDays[d] = true;
-        await track(w, 'megapot_streak_day', { dateUtc: d, dayOfWeekCount: daysCount, weekVolumeUsd: Math.round(cum) });
+        emits.push([w, 'megapot_streak_day', { dateUtc: d, dayOfWeekCount: daysCount, weekVolumeUsd: Math.round(cum), campaignTradeDays: Object.keys(ws.boxes || {}).length }]);
       }
       for (const d of Object.keys(ws.cioDays || {})) {
         if (new Date(d + 'T00:00:00Z').getTime() < mondayMs - 14 * 86400000) delete ws.cioDays[d];
@@ -254,12 +270,21 @@ export async function accrue() {
     // edge in every workflow) + where that leaves the next ticket
     if (vol > 0) {
       const priceUsd = s.lastPriceUsd || 1;
-      await track(w, 'megapot_trade', {
+      emits.push([w, 'megapot_trade', {
         usd: Math.round(vol), fills: fs_.length, feeRebatedUsd: +credit.toFixed(4),
         creditUsd: +ws.creditUsdc.toFixed(4), nextTicketPct: Math.min(100, Math.round((ws.creditUsdc / priceUsd) * 100)),
         campaignTradeDays: Object.keys(ws.boxes || {}).length, dateUtc: new Date().toISOString().slice(0, 10),
-      });
+      }]);
     }
+    // one wallet's work is durable before the next wallet's RPC call can throw
+    save(s);
+    await flush(emits);
+   } catch (e) {
+    // one wallet's venue/RPC failure never stalls the others: its checkpoint
+    // is untouched, so the next cycle retries it from where it left off
+    emits.length = 0;
+    console.log(`${w} accrue skipped this cycle: ${e.message}`);
+   }
   }
   save(s);
   return s;
@@ -277,6 +302,10 @@ async function reconcile(s, pub, priceUsd) {
       const rc = await pub.getTransactionReceipt({ hash: p.tx });
       status = rc?.status ?? null;
     } catch { /* not found yet: leave unverified, re-check next cycle */ }
+    if (status === null) {
+      p.unfound = (p.unfound || 0) + 1;
+      if (p.unfound >= 12) status = 'reverted';   // dropped from the mempool / reorged away: treat as never mined
+    }
     if (status === 'success') { p.verified = true; continue; }
     if (status === 'reverted') {
       console.log(`${p.wallet} reconcile: tx ${p.tx} reverted — refunding ${p.count} ticket(s)`);
@@ -293,12 +322,18 @@ async function reconcile(s, pub, priceUsd) {
       p.verified = true; p.refunded = true;
     }
   }
+  s.purchases = (s.purchases || []).filter((p) => !p.verified || Date.now() - p.ts < 7 * 86400000);
 }
 
 // ── buy: credit ≥ live ticket price → tickets minted to the trader ─────────
 export async function buy() {
   guard();
   await ensureFeed();
+  if (cfg.END_MS && Date.now() > cfg.END_MS + cfg.BUY_GRACE_MS) { console.log('season over + grace: minting closed'); return load(); }
+  const release = acquireLock(STATE);
+  try { return await buyInner(); } finally { release(); }
+}
+async function buyInner() {
   const s = load();
   const n = net();
   const chain = cfg.TARGET === 'mainnet' ? base : baseSepolia;
@@ -318,6 +353,7 @@ export async function buy() {
   }
 
   for (const w of eligibleWallets()) {
+   try {
     const ws = wstate(s, w);
     if (ws.streakTicketsPending > 0) {
       ws.creditUsdc += ws.streakTicketsPending * priceUsd;
@@ -353,6 +389,8 @@ export async function buy() {
       continue;
     }
     const cost = price * BigInt(count);
+    // grants/credits above are committed before any wire call
+    save(s);
     const h1 = await wallet.writeContract({ address: n.usdc, abi: erc20Abi, functionName: 'approve', args: [n.randomBuyer, cost] });
     await pub.waitForTransactionReceipt({ hash: h1 });
     // explicit gas: the quick-pick path's cost is variable (entropy + per-ticket
@@ -368,20 +406,33 @@ export async function buy() {
       // upfront reserve = gas*maxFee = 0.000117 ETH; keep the pool wallet's
       // native balance above that or the node rejects the send pre-hash.
     });
-    const rc = await pub.waitForTransactionReceipt({ hash: h2 });
-    // a mined-but-REVERTED buy must not touch the ledger: unchecked status
-    // once recorded a phantom purchase that ate the daily cap (tx 0x605689d2)
-    if (rc.status !== 'success') {
-      console.log(`${w} buy REVERTED on-chain (tx ${rc.transactionHash}) — ledger untouched`);
-      continue;
-    }
+    // the tx hash is on disk BEFORE we wait for the receipt: a crash or RPC
+    // timeout here must never lead to a second buy for the same credit.
+    // reconcile() settles the receipt (success -> verified, reverted ->
+    // refund) on later cycles; until then the credit stays debited.
     ws.creditUsdc -= count * priceUsd;
     ws.tickets[day] = dayCount + count;
     s.spentUsdc += count * priceUsd;
-    (s.purchases ??= []).push({ ts: Date.now(), wallet: w, day, count, priceUsd, drawing: drawing.toString(), tx: rc.transactionHash, verified: false });
-    console.log(`${w} bought ${count} ticket(s) → tx ${rc.transactionHash}`);
-    await track(w, 'megapot_tickets_minted', { count, txHash: rc.transactionHash, drawing: drawing.toString(), priceUsd,
+    const rec = { ts: Date.now(), wallet: w, day, count, priceUsd, drawing: drawing.toString(), tx: h2, verified: false };
+    (s.purchases ??= []).push(rec);
+    save(s);
+    const rc = await pub.waitForTransactionReceipt({ hash: h2 });
+    if (rc.status !== 'success') {
+      // mined but REVERTED: refund exactly what was debited (tx 0x605689d2 once ate a day cap)
+      console.log(`${w} buy REVERTED on-chain (tx ${h2}) - refunded`);
+      ws.creditUsdc += count * priceUsd; ws.tickets[day] = dayCount; if (!ws.tickets[day]) delete ws.tickets[day];
+      s.spentUsdc -= count * priceUsd; rec.verified = true; rec.refunded = true;
+      save(s);
+      continue;
+    }
+    rec.verified = true;
+    save(s);
+    console.log(`${w} bought ${count} ticket(s) → tx ${h2}`);
+    await track(w, 'megapot_tickets_minted', { count, txHash: h2, drawing: drawing.toString(), priceUsd,
       todayTotal: dayCount + count, creditLeftUsd: +ws.creditUsdc.toFixed(4) });
+   } catch (e) {
+    console.log(`${w} buy skipped this cycle: ${e.message}`);
+   }
   }
   save(s);
   return s;

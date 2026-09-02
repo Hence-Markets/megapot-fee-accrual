@@ -263,6 +263,10 @@
         "p": 0.12,
         "size": 8
       }
-    ]
-  }
+    ],
+    "minDayUsd": 250,
+    "$minDayUsd": "a trade day only opens a box once the day's qualifying volume reaches this - a $1 trade must not roll a 60% box"
+  },
+  "requireBuilderFee": true,
+  "$requireBuilderFee": "Only fills that carried Hence's builder fee count for credit, packs and streak boxes. Direct HL trades earn nothing (they earn Hence nothing)."
 }

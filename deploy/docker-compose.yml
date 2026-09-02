@@ -21,6 +21,7 @@ services:
       # on the next accrue, which is the one failure mode that costs real money.
       - ledger:/app/engine/state
     restart: unless-stopped
+    stop_grace_period: 120s   # a buy in flight gets to write its tx hash
     healthcheck:
       test: ["CMD-SHELL", "test -d /app/engine/state"]
       interval: 60s

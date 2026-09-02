@@ -81,6 +81,10 @@ export const cfg = {
   FIRST_TRADE: campaign.firstTradeBonus || null,     // new-user unlock (null disables)
   STREAK: campaign.streak || null,                    // day-3/day-5 checkpoint grants (null disables)
   STREAK_BOX: campaign.streakBox && campaign.streakBox.enabled ? campaign.streakBox : null, // daily surprise box (replaces checkpoints when enabled)
+  // pay only on Hence-routed fills (HL charges our builder fee on them); false opens it to all HL fills
+  REQUIRE_BUILDER_FEE: campaign.requireBuilderFee !== false,
+  // minting stops this long after END_MS - queued tickets still drain, nothing new accrues
+  BUY_GRACE_MS: 3 * 86400000,
   OPS_GRANTS: campaign.opsGrants || [],               // one-time config-driven credit grants (compensations, smoke tests)
 
   // buy-tx fee ceiling: raise via MAX_FEE_GWEI when Base runs hot - buys stall
@@ -92,7 +96,7 @@ export const cfg = {
   // PostHog server-side capture - campaign events mirror here for monitoring
   // default = the project's PUBLIC capture key (same literal serve.py ships);
   // a write-only key, safe in a public repo. Env overrides for other projects.
-  POSTHOG_KEY: process.env.POSTHOG_KEY || 'phc_aTmNUwA7ztsNYNXpkRDUCaEvZXB8SeHYUMOr1my6tnl',
+  POSTHOG_KEY: process.env.POSTHOG_KEY === undefined ? 'phc_aTmNUwA7ztsNYNXpkRDUCaEvZXB8SeHYUMOr1my6tnl' : process.env.POSTHOG_KEY, // POSTHOG_KEY='' switches it off
   POSTHOG_HOST: (process.env.POSTHOG_HOST || 'https://us.i.posthog.com').replace(/\/$/, ''),
   TREASURY: (process.env.TREASURY || '').toLowerCase(), // Megapot referrer — referral fees recycle
   PRIVATE_KEY: process.env.PRIVATE_KEY || '',           // pool hot wallet (capped)

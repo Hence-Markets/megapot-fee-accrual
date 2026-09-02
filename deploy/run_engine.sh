@@ -17,6 +17,8 @@ while true; do
   # the next pass retries from the checkpoint.
   echo "[megapot] $(date -u) buy"
   node src/run.js buy || echo "[megapot] buy failed (continuing)" >&2
+  # win sweep + daily lifecycle status (comms only; never touches the wire)
+  node src/run.js winsweep || echo "[megapot] winsweep failed (continuing)" >&2
   node src/run.js status || true
   sleep "$INTERVAL"
 done
