@@ -195,6 +195,12 @@
       "usd": 1.1,
       "id": "mainnet-smoke-1",
       "$note": "one-time ops credit grant, applied once per id per wallet and recorded in the ledger - used here for the supervised first mainnet mint test"
+    },
+    {
+      "wallet": "0x9cc6c5d8318c69b602b866f644628e61d98f55ed",
+      "usd": 1.0,
+      "id": "mainnet-smoke-2",
+      "$note": "2026-09-02 22:45Z: supervised proof-of-fix mint after PR #14 (standing allowance + explicit approve gas + simulate before buy) - one ticket; the buy cycle must log 'standing allowance set' then 'bought'"
     }
   ],
   "$multipliers": "DECIDED 2026-09-03: tiers are KICKERS on top of base minting - 2x = +25% credit on qualifying volume, 3x = +50%, 4x = +75%, 5x = +100% (200% of fees back). Tiers unlock on thesis-basket VOLUME (entry $1,000 per the rules doc). The $2,500/$5,000/$10,000 rungs for 3x-5x are proposed defaults pending final sign-off. Tiers activate when basket tracking goes live; base rate applies until then.",
