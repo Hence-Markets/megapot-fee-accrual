@@ -156,14 +156,14 @@ const qualifies = (coin, timeMs) => {
 };
 
 // ── accrue: fills since checkpoint → fee credit ────────────────────────────
-export async function accrue() {
+export async function accrue(only = null) {
   guard();
   await ensureFeed();
   await ensureBasketFeed();
   const release = acquireLock(STATE);
-  try { await accrueInner(); } finally { release(); }
+  try { await accrueInner(only); } finally { release(); }
 }
-async function accrueInner() {
+async function accrueInner(only = null) {
   const s = load();
   const emits = [];
   const grantsOpen = !cfg.END_MS || Date.now() <= cfg.END_MS;   // no new packs/boxes after the season
@@ -183,7 +183,8 @@ async function accrueInner() {
       spotFeedOk = true;
     } catch (e) { console.log(`spot feed unavailable this cycle: ${e.message}`); }
   }
-  for (const w of eligibleWallets()) {
+  const accrueTargets = only ? eligibleWallets().filter((x) => only.has(x)) : eligibleWallets();
+  for (const w of accrueTargets) {
    try {
     const ws = wstate(s, w);
     // A wallet first seen under a LATER start (its checkpoint was initialised to that
@@ -421,14 +422,14 @@ async function reconcile(s, pub, priceUsd) {
 }
 
 // ── buy: credit ≥ live ticket price → tickets minted to the trader ─────────
-export async function buy() {
+export async function buy(only = null) {
   guard();
   await ensureFeed();
   if (cfg.END_MS && Date.now() > cfg.END_MS + cfg.BUY_GRACE_MS) { console.log('season over + grace: minting closed'); return load(); }
   const release = acquireLock(STATE);
-  try { return await buyInner(); } finally { release(); }
+  try { return await buyInner(only); } finally { release(); }
 }
-async function buyInner() {
+async function buyInner(only = null) {
   const s = load();
   const n = net();
   const chain = cfg.TARGET === 'mainnet' ? base : baseSepolia;
@@ -447,7 +448,10 @@ async function buyInner() {
     wallet = createWalletClient({ account, chain, transport: http(n.rpc) });
   }
 
-  for (const w of eligibleWallets()) {
+  const buyTargets = only ? eligibleWallets().filter((x) => only.has(x)) : eligibleWallets();
+  const reverted = [];
+  const runFor = async (list, isRetry) => {
+  for (const w of list) {
    try {
     const ws = wstate(s, w);
     if (ws.streakTicketsPending > 0) {
@@ -519,10 +523,11 @@ async function buyInner() {
     const rc = await pub.waitForTransactionReceipt({ hash: h2 });
     if (rc.status !== 'success') {
       // mined but REVERTED: refund exactly what was debited (tx 0x605689d2 once ate a day cap)
-      console.log(`${w} buy REVERTED on-chain (tx ${h2}) - refunded`);
+      console.log(`${w} buy REVERTED on-chain (tx ${h2}) - refunded${isRetry ? '' : ' - will retry once'}`);
       ws.creditUsdc += count * priceUsd; ws.tickets[day] = dayCount; if (!ws.tickets[day]) delete ws.tickets[day];
       s.spentUsdc -= count * priceUsd; rec.verified = true; rec.refunded = true;
       save(s);
+      if (!isRetry) reverted.push(w);
       continue;
     }
     rec.verified = true;
@@ -534,8 +539,47 @@ async function buyInner() {
     console.log(`${w} buy skipped this cycle: ${e.message}`);
    }
   }
+  };
+  await runFor(buyTargets, false);
+  if (reverted.length) {
+    // one retry after a short pause: sequential purchases in one pass have reverted
+    // on-chain at ~76k gas (allowance/entropy timing) and succeeded next attempt
+    console.log(`retrying ${reverted.length} reverted buy(s) once after 4s`);
+    await new Promise((r) => setTimeout(r, 4000));
+    await runFor(reverted.splice(0), true);
+  }
   save(s);
   return s;
+}
+
+// ── fast lane: accrue + buy for wallets with a FRESH execution receipt ────────
+// Runs between full sweeps (every ENGINE_FAST_S). The backend lists wallets that
+// recorded a fill since the last fast run, so a validated trade mints within
+// seconds while Hyperliquid is only polled for those wallets.
+const FAST_STATE = `state/fast.${cfg.TARGET}.json`;
+export async function fastLane() {
+  guard();
+  const url = cfg.ACTIVE_URL || (cfg.USERS_URL ? cfg.USERS_URL.replace(/\/api\/admin\/wallets.*$/, '/api/admin/active-wallets') : '');
+  if (!url || url === cfg.USERS_URL) return;
+  let since = Date.now() - 10 * 60_000;
+  try { since = Number(JSON.parse(fs.readFileSync(FAST_STATE, 'utf8')).since) || since; } catch { /* first run */ }
+  const startedAt = Date.now();
+  let wallets = [];
+  try {
+    const r = await fetch(`${url}${url.includes('?') ? '&' : '?'}since_ms=${since - 30_000}`, { headers: cfg.USERS_TOKEN ? { Authorization: `Bearer ${cfg.USERS_TOKEN}` } : {} });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    wallets = (Array.isArray(j) ? j : j.wallets || []).map((w) => String(w).toLowerCase());
+  } catch (e) { console.log(`[megapot] fast lane: active feed unreachable (${e.message})`); return; }
+  try { fs.writeFileSync(FAST_STATE, JSON.stringify({ since: startedAt })); } catch { /* best-effort */ }
+  if (!wallets.length) return;
+  await ensureFeed();
+  const elig = new Set(eligibleWallets());
+  const only = new Set(wallets.filter((w) => elig.has(w)));
+  if (!only.size) return;
+  console.log(`[megapot] fast lane: ${only.size} active wallet(s)`);
+  await accrue(only);
+  await buy(only);
 }
 
 export function status() {
