@@ -186,6 +186,10 @@ async function accrueInner() {
   for (const w of eligibleWallets()) {
    try {
     const ws = wstate(s, w);
+    // A wallet first seen under a LATER start (its checkpoint was initialised to that
+    // START_MS) must not skip fills that a subsequently EARLIER start makes eligible -
+    // safe only while it has never been credited (no double-credit possible).
+    if (!(ws.volumeUsd > 0) && ws.lastFillMs > cfg.START_MS) ws.lastFillMs = cfg.START_MS;
     const fs_ = await fills(w, ws.lastFillMs);
     let vol = 0, activationFill = null, boostedVol = 0;
     const ftMin = cfg.FIRST_TRADE ? (cfg.FIRST_TRADE.minTradeUsd || 0) : Infinity;
