@@ -6,6 +6,7 @@ import { cioIdentify } from './cio.js';
 import { readLedger, writeLedger, acquireLock, isHenceFill } from './ledger.js';
 import { foldSpotFills } from './spotFills.js';
 import { takeFromDailyGate } from './gates.js';
+import { planApproval } from './allowance.js';
 import { createPublicClient, createWalletClient, http, formatUnits, keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
@@ -495,15 +496,43 @@ async function buyInner(only = null) {
     const cost = price * BigInt(count);
     // grants/credits above are committed before any wire call
     save(s);
-    const h1 = await wallet.writeContract({ address: n.usdc, abi: erc20Abi, functionName: 'approve', args: [n.randomBuyer, cost] });
-    await pub.waitForTransactionReceipt({ hash: h1 });
+    // STANDING ALLOWANCE (see allowance.js): approve only when the buyer's
+    // allowance cannot cover this buy, and then for ~1000 tickets. The
+    // per-buy approve->buy pair reverted with "transfer amount exceeds
+    // allowance" on mainnet when the buy executed before the fresh approval
+    // was visible; a standing allowance has no such window.
+    let allowance = await pub.readContract({ address: n.usdc, abi: erc20Abi, functionName: 'allowance', args: [account.address, n.randomBuyer] });
+    const approveFor = planApproval(allowance, cost, price);
+    if (approveFor != null) {
+      // explicit gas: the reverted approvals (nonce 10/17 on 2026-09-02) ran out of gas
+      // at ~36k because the estimate came from a node that still saw the OLD non-zero
+      // allowance (cheap SSTORE) while execution wrote zero -> non-zero (20k more).
+      const h1 = await wallet.writeContract({ address: n.usdc, abi: erc20Abi, functionName: 'approve', args: [n.randomBuyer, approveFor], gas: 120_000n });
+      await pub.waitForTransactionReceipt({ hash: h1 });
+      // the receipt is not the state: re-read until the node we buy through sees it
+      for (let i = 0; i < 6 && allowance < cost; i++) {
+        allowance = await pub.readContract({ address: n.usdc, abi: erc20Abi, functionName: 'allowance', args: [account.address, n.randomBuyer] });
+        if (allowance < cost) await new Promise((r) => setTimeout(r, 1500));
+      }
+      if (allowance < cost) { console.log(`${w} buy deferred: allowance ${allowance} still below cost ${cost} after approval - next cycle`); continue; }
+      console.log(`standing allowance set: ${approveFor} (tx ${h1})`);
+    }
+    const buyArgs = [BigInt(count), w, cfg.TREASURY ? [cfg.TREASURY] : [], cfg.TREASURY ? [10n ** 18n] : [], keccak256(toHex(cfg.SOURCE_TAG))];
+    // dry-run the exact call first: a would-be revert costs no gas, no ledger
+    // debit and no refund cycle - the wallet simply waits for the next cycle
+    try {
+      await pub.simulateContract({ address: n.randomBuyer, abi: buyerAbi, functionName: 'buyTickets', args: buyArgs, account });
+    } catch (e) {
+      console.log(`${w} buy would revert - skipped this cycle: ${(e.shortMessage || e.message || '').split('\n')[0]}`);
+      continue;
+    }
     // explicit gas: the quick-pick path's cost is variable (entropy + per-ticket
     // loops) and estimation both underestimates it (observed 5.42M used of a
     // 5.5M limit -> on-chain OOG revert) and races fresh approvals on laggy
     // RPCs. A generous fixed limit sidesteps both; unused gas is refunded.
     const h2 = await wallet.writeContract({
       address: n.randomBuyer, abi: buyerAbi, functionName: 'buyTickets',
-      args: [BigInt(count), w, cfg.TREASURY ? [cfg.TREASURY] : [], cfg.TREASURY ? [10n ** 18n] : [], keccak256(toHex(cfg.SOURCE_TAG))],
+      args: buyArgs,
       gas: 6_500_000n,                  // ~5.4M real usage + 20% headroom
       maxFeePerGas: cfg.MAX_FEE_WEI,    // default 0.018 gwei cap (Base ~0.006); MAX_FEE_GWEI env raises it
       maxPriorityFeePerGas: 500_000n,   // 0.0005 gwei tip
