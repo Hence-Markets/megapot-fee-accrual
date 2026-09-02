@@ -36,4 +36,9 @@ export function acquireLock(file) {
 }
 // fills the campaign pays on: Hence-routed only (a builder fee was charged),
 // unless the campaign explicitly opens it up
-export const isHenceFill = (f, requireBuilderFee = true) => !requireBuilderFee || Number(f?.builderFee || 0) > 0;
+// A Hence fill = one Hence earns its fee on. Native HL perps only count when
+// routed through Hence (builderFee tag present). xyz HIP-3 assets ALWAYS count
+// for whitelisted wallets: Hence is the xyz DEPLOYER, so it earns on every xyz
+// fill regardless of the builderFee field (which xyz fills never populate).
+export const isHenceFill = (f, requireBuilderFee = true) =>
+  !requireBuilderFee || Number(f?.builderFee || 0) > 0 || String(f?.coin || '').startsWith('xyz:');
