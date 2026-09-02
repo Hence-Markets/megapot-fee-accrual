@@ -103,7 +103,9 @@ export const cfg = {
   POSTHOG_KEY: process.env.POSTHOG_KEY === undefined ? 'phc_aTmNUwA7ztsNYNXpkRDUCaEvZXB8SeHYUMOr1my6tnl' : process.env.POSTHOG_KEY, // POSTHOG_KEY='' switches it off
   POSTHOG_HOST: (process.env.POSTHOG_HOST || 'https://us.i.posthog.com').replace(/\/$/, ''),
   TREASURY: (process.env.TREASURY || '').toLowerCase(), // Megapot referrer — referral fees recycle
-  PRIVATE_KEY: process.env.PRIVATE_KEY || '',           // pool hot wallet (capped)
+  // pool hot wallet (capped). Accepts the key with or without the 0x prefix - a
+  // 64-hex paste from a wallet UI is the common case and must not stall minting.
+  PRIVATE_KEY: (() => { const k = (process.env.PRIVATE_KEY || '').trim(); return /^[0-9a-fA-F]{64}$/.test(k) ? `0x${k}` : k; })(),
   SOURCE_TAG: 'hence-fee-accrual',
 };
 
