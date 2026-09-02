@@ -4,6 +4,7 @@ import { rollStreakBox, boxFor } from './streakBox.js';
 import { dailyStatus, attrs, shouldEmit } from './lifecycle.js';
 import { cioIdentify } from './cio.js';
 import { readLedger, writeLedger, acquireLock, isHenceFill } from './ledger.js';
+import { foldSpotFills } from './spotFills.js';
 import { takeFromDailyGate } from './gates.js';
 import { createPublicClient, createWalletClient, http, formatUnits, keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -104,6 +105,23 @@ async function fills(wallet, sinceMs) {
   return out;
 }
 
+// ── relay-spot fills (hence backend feed) ──────────────────────────────────
+// Hyperliquid cannot see chain-4663 swaps, so the spot product reads Hence's OWN receipts
+// ledger via /api/admin/spot-fills (same admin token as the enrollment feed). One fetch per
+// cycle since the OLDEST enrolled checkpoint; per-wallet lastSpotFillMs makes the fold
+// idempotent, so a new wallet joining (which drags `since` back to START_MS) re-reads
+// history without re-crediting anyone. Season-scale bound: the feed caps at 5000 rows,
+// far above S1's spot volume; revisit before a season where that could truncate.
+async function spotFills(sinceMs) {
+  const r = await fetch(`${cfg.SPOT_FILLS_URL}?since=${sinceMs}`, {
+    headers: cfg.USERS_TOKEN ? { Authorization: `Bearer ${cfg.USERS_TOKEN}` } : {},
+  });
+  if (!r.ok) throw new Error(`spot feed ${r.status}`);
+  const j = await r.json();
+  if (!Array.isArray(j?.fills)) throw new Error('spot feed shape');
+  return j.fills;
+}
+
 const qualifies = (coin, timeMs) => {
   // campaign window is a hard bound in both directions
   if (timeMs < cfg.START_MS || (cfg.END_MS && timeMs > cfg.END_MS)) return false;
@@ -128,6 +146,22 @@ async function accrueInner() {
   const s = load();
   const emits = [];
   const grantsOpen = !cfg.END_MS || Date.now() <= cfg.END_MS;   // no new packs/boxes after the season
+  // spot feed: fetched once per cycle, grouped per wallet. Unavailable = spot accrual
+  // simply skips this cycle (checkpoints unmoved, HL accrual unaffected) — it must never
+  // throw into the money path or advance past rows it did not read.
+  const spotByWallet = new Map();
+  let spotFeedOk = false;
+  if (cfg.SPOT_FILLS_URL && cfg.PRODUCTS.includes('spot')) {
+    try {
+      const since = Math.min(...eligibleWallets().map((w) => Number(s.wallets?.[w]?.lastSpotFillMs || cfg.START_MS)), Date.now());
+      for (const f of await spotFills(since)) {
+        const fw = String(f.wallet || '').toLowerCase();
+        if (!spotByWallet.has(fw)) spotByWallet.set(fw, []);
+        spotByWallet.get(fw).push(f);
+      }
+      spotFeedOk = true;
+    } catch (e) { console.log(`spot feed unavailable this cycle: ${e.message}`); }
+  }
   for (const w of eligibleWallets()) {
    try {
     const ws = wstate(s, w);
@@ -142,6 +176,23 @@ async function accrueInner() {
       const dstr = new Date(f.time).toISOString().slice(0, 10);
       (ws.days ??= {})[dstr] = (ws.days[dstr] || 0) + notional;
       ws.lastFillMs = Math.max(ws.lastFillMs, f.time);
+    }
+    // relay-spot fills join the SAME wallet ledger: volume and trade-days count toward
+    // packs and streak boxes ("every product on Hence"), while the CREDIT is the exact
+    // recorded fee (see spotFills.js for why it is not a bps recompute). hlVol is captured
+    // first so the FEE_BPS formula below never re-prices spot volume at the perp rate.
+    const hlVol = vol;
+    let spotCredit = 0;
+    if (spotFeedOk) {
+      const sf = foldSpotFills(spotByWallet.get(w) || [], ws.lastSpotFillMs, cfg);
+      if (sf.count) {
+        spotCredit = sf.credit;
+        vol += sf.vol;
+        if (activationFill == null && sf.maxFillUsd >= ftMin) activationFill = sf.maxFillUsd;
+        for (const [d, v] of Object.entries(sf.days)) (ws.days ??= {})[d] = (ws.days[d] || 0) + v;
+        ws.lastSpotFillMs = sf.lastSpotFillMs;
+        console.log(`${w} +$${sf.vol.toFixed(2)} spot volume (${sf.count} fill(s)) → +$${sf.credit.toFixed(4)} exact-fee credit`);
+      }
     }
     // activation pack: granted ONCE per wallet, on the wallet's first
     // qualifying fill of >= minTradeUsd - a smaller starter trade must never
@@ -262,7 +313,7 @@ async function accrueInner() {
       ws.opsGrants[g.id] = { usd: g.usd, at: Date.now() };
       console.log(`${w} ops grant '${g.id}': +$${Number(g.usd).toFixed(2)} credit`);
     }
-    const credit = vol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER;
+    const credit = hlVol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER + spotCredit;
     ws.volumeUsd += vol;
     ws.creditUsdc += credit;
     ws.rebatedUsd = (ws.rebatedUsd || 0) + credit;
