@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { rollStreakBox, boxFor } from './streakBox.js';
+import { dailyStatus, attrs, shouldEmit } from './lifecycle.js';
+import { cioIdentify } from './cio.js';
 import { createPublicClient, createWalletClient, http, formatUnits, keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
@@ -246,7 +248,18 @@ export async function accrue() {
     const credit = vol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER;
     ws.volumeUsd += vol;
     ws.creditUsdc += credit;
+    ws.rebatedUsd = (ws.rebatedUsd || 0) + credit;
     console.log(`${w} +$${vol.toFixed(2)} qualifying volume → +$${credit.toFixed(4)} credit (total $${ws.creditUsdc.toFixed(4)})`);
+    // CRM anchor: one trade event per cycle with volume (the "user trades"
+    // edge in every workflow) + where that leaves the next ticket
+    if (vol > 0) {
+      const priceUsd = s.lastPriceUsd || 1;
+      await track(w, 'megapot_trade', {
+        usd: Math.round(vol), fills: fs_.length, feeRebatedUsd: +credit.toFixed(4),
+        creditUsd: +ws.creditUsdc.toFixed(4), nextTicketPct: Math.min(100, Math.round((ws.creditUsdc / priceUsd) * 100)),
+        campaignTradeDays: Object.keys(ws.boxes || {}).length, dateUtc: new Date().toISOString().slice(0, 10),
+      });
+    }
   }
   save(s);
   return s;
@@ -295,6 +308,7 @@ export async function buy() {
   const drawing = await pub.readContract({ address: n.jackpot, abi: jackpotAbi, functionName: 'currentDrawingId' });
   const day = new Date().toISOString().slice(0, 10);
   console.log(`drawing #${drawing} · ticket $${priceUsd} · ${cfg.DRY_RUN ? 'DRY RUN — no funds move' : 'LIVE'}`);
+  s.lastPriceUsd = priceUsd;
   await reconcile(s, pub, priceUsd);
 
   let account = null, wallet = null;
@@ -366,7 +380,8 @@ export async function buy() {
     s.spentUsdc += count * priceUsd;
     (s.purchases ??= []).push({ ts: Date.now(), wallet: w, day, count, priceUsd, drawing: drawing.toString(), tx: rc.transactionHash, verified: false });
     console.log(`${w} bought ${count} ticket(s) → tx ${rc.transactionHash}`);
-    await track(w, 'megapot_tickets_minted', { count, txHash: rc.transactionHash });
+    await track(w, 'megapot_tickets_minted', { count, txHash: rc.transactionHash, drawing: drawing.toString(), priceUsd,
+      todayTotal: dayCount + count, creditLeftUsd: +ws.creditUsdc.toFixed(4) });
   }
   save(s);
   return s;
@@ -398,6 +413,13 @@ export async function winSweep() {
   guard();
   await ensureFeed();
   const s = load();
+  // the active round once per sweep - "tickets in tonight's draw" needs it
+  let currentRound = null;
+  try {
+    const r = await fetch('https://api.megapot.io/v1/rounds/active', { signal: AbortSignal.timeout(8000) });
+    const j = await r.json();
+    if (j?.id != null) currentRound = String(j.id);
+  } catch { /* status still emits without the draw count */ }
   for (const w of eligibleWallets()) {
     const ws = wstate(s, w);
     let rows = [];
@@ -406,6 +428,13 @@ export async function winSweep() {
       const j = await r.json();
       rows = Array.isArray(j?.data) ? j.data : [];
     } catch { continue; }                       // venue hiccup: next cycle retries
+    // TICKET LIFECYCLE: daily status event + profile attributes (once a day,
+    // and again the moment the draw count or claimable money changes)
+    const st = dailyStatus({ ws, rows, currentRound, priceUsd: s.lastPriceUsd || 1, startMs: cfg.START_MS });
+    if (shouldEmit(ws.lastStatus, st)) {
+      ws.lastStatus = { dateUtc: st.dateUtc, ticketsInDraw: st.ticketsInDraw, unclaimedUsd: st.unclaimedUsd };
+      await Promise.allSettled([track(w, 'megapot_daily_status', st), cioIdentify(w, attrs(st))]);
+    }
     for (const t of rows) {
       const wa = t.winnings_amount;
       const usd = wa && typeof wa === 'object' ? Number(wa.amount || 0) / 10 ** (wa.decimals ?? 6) : Number(wa || 0) / 1e6;
