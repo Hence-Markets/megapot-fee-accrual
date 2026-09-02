@@ -3,8 +3,9 @@
 # rather than host cron, so the schedule ships with the deployment and survives a VM reboot.
 set -u
 INTERVAL="${ENGINE_INTERVAL_S:-300}"
+FAST="${ENGINE_FAST_S:-15}"
 
-echo "[megapot] starting · interval=${INTERVAL}s · DRY_RUN=${DRY_RUN:-1} · TARGET=${TARGET:-testnet}"
+echo "[megapot] starting · interval=${INTERVAL}s · fast lane every ${FAST}s · DRY_RUN=${DRY_RUN:-1} · TARGET=${TARGET:-testnet}"
 if [ "${DRY_RUN:-1}" = "0" ]; then
   echo "[megapot] *** DRY_RUN=0 — this WILL spend from the pool wallet ***"
 fi
@@ -20,5 +21,11 @@ while true; do
   # win sweep + daily lifecycle status (comms only; never touches the wire)
   node src/run.js winsweep || echo "[megapot] winsweep failed (continuing)" >&2
   node src/run.js status || true
-  sleep "$INTERVAL"
+  # fast lane between sweeps: accrue + buy ONLY for wallets with a fresh execution
+  # receipt (backend feed), so a validated trade mints within seconds
+  elapsed=0
+  while [ "$elapsed" -lt "$INTERVAL" ]; do
+    sleep "$FAST"; elapsed=$((elapsed + FAST))
+    node src/run.js fast || echo "[megapot] fast lane failed (continuing)" >&2
+  done
 done

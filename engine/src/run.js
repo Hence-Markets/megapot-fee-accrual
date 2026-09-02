@@ -1,4 +1,4 @@
-import { accrue, buy, status, winSweep, load, save } from './engine.js';
+import { accrue, buy, status, winSweep, load, save, fastLane } from './engine.js';
 import { resetWallets } from './reset.js';
 
 const cmd = process.argv[2];
@@ -6,6 +6,7 @@ if (cmd === 'accrue') await accrue();
 else if (cmd === 'buy') await buy();
 else if (cmd === 'cycle') { await accrue(); await buy(); await winSweep(); }
 else if (cmd === 'winsweep') await winSweep();
+else if (cmd === 'fast') await fastLane();
 else if (cmd === 'reset') {
   // node src/run.js reset 0xabc,0xdef  - team-test reset (see reset.js)
   const list = String(process.argv[3] || '').split(/[,\s]+/).filter(Boolean);
