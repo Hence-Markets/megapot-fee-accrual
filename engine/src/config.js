@@ -47,6 +47,10 @@ export const cfg = {
   // Returns [{wallet, emailBound}] - polled each cycle, disk-cached.
   USERS_URL: process.env.USERS_URL || '',
   USERS_TOKEN: process.env.USERS_TOKEN || '',
+  // relay-spot fee feed (the hence backend's /api/admin/spot-fills; same admin token).
+  // Empty = spot accrual OFF even with the product enabled - the engine must never guess
+  // at a feed, and Hyperliquid cannot see chain-4663 swaps at all.
+  SPOT_FILLS_URL: process.env.SPOT_FILLS_URL || '',
 
   // qualifying symbols (allowlist per spec; empty = all symbols qualify in test mode)
   SYMBOLS: (process.env.SYMBOLS ? process.env.SYMBOLS.split(',') : (campaign.eligibility.symbols || [])).map((s) => String(s).trim().toUpperCase()).filter(Boolean),

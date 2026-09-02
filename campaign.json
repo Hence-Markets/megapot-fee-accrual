@@ -11,9 +11,10 @@
   "eligibility": {
     "products": [
       "perps",
-      "xyz-equities"
+      "xyz-equities",
+      "spot"
     ],
-    "$products": "product suites this campaign covers: perps (native HL coins) | xyz-equities (coins prefixed xyz:) | baskets (fills recorded via thesis executions \u2014 needs app stitch) | predictions (not yet supported)",
+    "$products": "product suites this campaign covers: perps (native HL coins) | xyz-equities (coins prefixed xyz:) | spot (Robinhood Chain swaps via the hence backend's relay-spot feed \u2014 SPOT_FILLS_URL; fills carry Hence's 25bps app fee as builderFee and credit that EXACT fee, not a bps-of-notional recompute, because our own receipts ledger records it per fill) | baskets (fills recorded via thesis executions \u2014 needs app stitch) | predictions (not yet supported)",
     "symbols": [],
     "$symbols": "empty = ALL symbols on the enabled products qualify (Season 1 rule: every product on Hence). Add tickers to restrict.",
     "excludeZeroFeePairs": [],
@@ -22,7 +23,8 @@
   "economics": {
     "feeBps": 4.0,
     "rolloverShare": 1.0,
-    "$note": "4.0bps = Hence's LIVE builder-fee take (verified /api/config hlBuilderFee=40 tenths). Charged on routed orders regardless of maker/taker, so accrual is identical on maker flow. Ticket conversion always uses Megapot's live ticketPrice()."
+    "$note": "4.0bps = Hence's LIVE builder-fee take (verified /api/config hlBuilderFee=40 tenths). Charged on routed orders regardless of maker/taker, so accrual is identical on maker flow. Ticket conversion always uses Megapot's live ticketPrice().",
+    "$spotNote": "Relay-spot fills credit their EXACT recorded fee (builderFee on the feed row = the 25bps app fee our own ledger stored for that swap) times rolloverShare \u2014 no spotFeeBps knob exists on purpose: a bps recompute could drift from what was actually charged, and unlike HL (where the engine reads the venue's feed) the spot fee is first-party ground truth."
   },
   "multipliers": [
     {
