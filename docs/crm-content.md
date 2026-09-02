@@ -6,7 +6,7 @@ Mirrors the CRM Playbook artifact. Edit here or export from the artifact; Liquid
 **Subject:** Here is what one trade gets you
 **Preheader:** 1-5 Megapot tickets, tonight
 
-You signed up. One trade of $250 on any asset - or $250 combined - and a pack of 1-5 Megapot tickets mints straight to your wallet for tonight's draw.
+You signed up. One trade of $100 on any asset - or $100 combined - and a pack of 1-5 Megapot tickets mints straight to your wallet for tonight's draw.
 
 After that every $2,500 of volume fills the meter for another ticket, and every day you trade opens a streak box (day 2 pays 60% of the time).
 
@@ -18,7 +18,7 @@ The pool tonight: {{customer.pool_usd | default: "$1.1M"}}.
 **Subject:** {{customer.first_name | default: "Someone"}} in your cohort just minted 5 tickets
 **Preheader:** They found alpha. You found the signup page.
 
-A trader who joined the same week as you took the $250 pack, drew 5 tickets and is riding tonight's draw.
+A trader who joined the same week as you took the $100 pack, drew 5 tickets and is riding tonight's draw.
 
 People are getting hilariously rich on a jackpot you have not entered yet. Your pack is still unopened.
 
@@ -30,7 +30,7 @@ People are getting hilariously rich on a jackpot you have not entered yet. Your 
 
 Today the pool wallet minted {{customer.minted_today | default: "23"}} Megapot tickets for Hence traders. The pool is {{customer.pool_usd | default: "$1.1M"}}.
 
-You have 0 tickets in tonight's draw. One $250 trade fixes that in five minutes.
+You have 0 tickets in tonight's draw. One $100 trade fixes that in five minutes.
 
 **Button:** Get in tonight's draw
 
@@ -40,7 +40,7 @@ You have 0 tickets in tonight's draw. One $250 trade fixes that in five minutes.
 
 We put one Megapot ticket in your wallet for tonight's draw ({{customer.pool_usd | default: "$1.1M"}} pool). It is already yours.
 
-Want more than one shot? A single $250 trade opens your 1-5 ticket pack next to it.
+Want more than one shot? A single $100 trade opens your 1-5 ticket pack next to it.
 
 **Button:** See my ticket
 
@@ -48,7 +48,7 @@ Want more than one shot? A single $250 trade opens your 1-5 ticket pack next to 
 **Subject:** Last one from us this season
 **Preheader:** Your pack stays unopened
 
-We will stop nudging. Your 1-5 ticket pack is still there for the length of Season 1 - one $250 trade opens it whenever you are ready.
+We will stop nudging. Your 1-5 ticket pack is still there for the length of Season 1 - one $100 trade opens it whenever you are ready.
 
 **Button:** Open my pack
 

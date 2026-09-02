@@ -61,9 +61,9 @@
     "$retroTickets": "Megapot's 12 tickets/day land in the pool wallet as NFTs. They are inventory, not USDC: to hand them to users the engine would transfer TicketNFTs instead of buying - NOT built yet. Until then they sit in stock (cover for rolled-over queues) and the ledger keeps buying with USDC."
   },
   "firstTradeBonus": {
-    "minTradeUsd": 250,
+    "minTradeUsd": 100,
     "poolTickets": 200,
-    "$note": "activation pack: account + email + first qualifying trade >= minTradeUsd opens a pack of 1-5 tickets DRAWN AT RANDOM from a fixed season pool - 150 pack slots totalling exactly 200 tickets, drawn without replacement (odds at launch: 76.0% / 17.3% / 4.7% / 1.3% / 0.7%). The draw depletes s.packSlots in the ledger, so odds drift as slots fill and the pool can never overshoot. dailyMintCap still paces minting per UTC day. QUALIFICATION: one fill >= minTradeUsd OR combined in-window volume >= minTradeUsd.",
+    "$note": "activation pack: account + email + first qualifying trade >= minTradeUsd ($100) opens a pack of 1-5 tickets DRAWN AT RANDOM from a fixed season pool - 150 pack slots totalling exactly 200 tickets, drawn without replacement (odds at launch: 76.0% / 17.3% / 4.7% / 1.3% / 0.7%). The draw depletes s.packSlots in the ledger, so odds drift as slots fill and the pool can never overshoot. dailyMintCap still paces minting per UTC day. QUALIFICATION: one fill >= minTradeUsd ($100) OR combined in-window volume >= minTradeUsd ($100).",
     "dailyMintCap": 30,
     "distribution": [
       {
@@ -101,7 +101,7 @@
     ],
     "actions": [
       {
-        "action": "Sign up + verified email + first trade >= $250",
+        "action": "Sign up + verified email + first trade >= $100",
         "reward": "1-5 ticket pack, drawn at random (200-ticket season pool)"
       },
       {
@@ -277,5 +277,9 @@
   "multiplierBonus": {
     "poolTickets": 200,
     "$note": "the EXTRA tickets multiplier tiers produce (above base fee rebate) are capped season-wide at 200. Tier enforcement in the engine is not built yet (tiers need the basket-volume feed) - this is the cap it must honour when it lands."
+  },
+  "testReset": {
+    "$note": "Team-test reset (2026-09-03): node src/run.js reset <wallets> wipes those wallets' ledger state and returns their pool draws. The hub clears its per-wallet markers when resetEpoch changes.",
+    "resetEpoch": "2026-09-03a"
   }
 }
