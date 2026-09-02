@@ -197,8 +197,9 @@ async function accrueInner() {
     // activation pack: granted ONCE per wallet, on the wallet's first
     // qualifying fill of >= minTradeUsd - a smaller starter trade must never
     // lock the pack out, so the qualifying notional persists on the ledger
-    // until it can grant. In open mode the grant also waits for a bound email
-    // (the user feed carries the flag); volume accrual is never held.
+    // until it can grant. With PACK_REQUIRES_EMAIL=1 the grant also waits for a
+    // bound email (the user feed carries the flag); Season 1 runs without the
+    // hold. Volume accrual is never held.
     const ft = cfg.FIRST_TRADE;
     if (ft) {
       const granted = !!(ws.packGranted || ws.firstTradeBonus || ws.bonusTicketsPending);
@@ -209,7 +210,7 @@ async function accrueInner() {
         ws.packQualifiedUsd = Math.max(ws.packQualifiedUsd || 0, (ws.volumeUsd || 0) + vol);
       }
       if (grantsOpen && !granted && (ws.packQualifiedUsd || 0) >= (ft.minTradeUsd || 0) && (ws.packQualifiedUsd || 0) > 0) {
-        if (!emailBound(w)) {
+        if (cfg.PACK_REQUIRES_EMAIL && !emailBound(w)) {
           console.log(`${w} activation pack HELD: qualifying trade $${ws.packQualifiedUsd.toFixed(2)} awaits a bound email`);
           if (!ws.packHeldNotified) { ws.packHeldNotified = true; emits.push([w, 'megapot_pack_held', { qualifyingUsd: Math.round(ws.packQualifiedUsd), reason: 'email' }]); }
         } else {

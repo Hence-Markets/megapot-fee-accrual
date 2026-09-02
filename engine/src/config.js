@@ -47,6 +47,10 @@ export const cfg = {
   // Returns [{wallet, emailBound}] - polled each cycle, disk-cached.
   USERS_URL: process.env.USERS_URL || '',
   USERS_TOKEN: process.env.USERS_TOKEN || '',
+  // open mode: hold activation packs until the user feed says the email is bound.
+  // Season 1 runs OPEN - packs grant on the qualifying trade; email is a CRM
+  // capture, not a gate. Set PACK_REQUIRES_EMAIL=1 to restore the hold.
+  PACK_REQUIRES_EMAIL: process.env.PACK_REQUIRES_EMAIL === '1',
   // relay-spot fee feed (the hence backend's /api/admin/spot-fills; same admin token).
   // Empty = spot accrual OFF even with the product enabled - the engine must never guess
   // at a feed, and Hyperliquid cannot see chain-4663 swaps at all.
