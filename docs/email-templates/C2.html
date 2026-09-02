@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark">
-<title>{{customer.tickets_in_draw}} ticket{{customer.tickets_in_draw | plus: 0 | modulo: 1}} in tonight&#x27;s draw</title></head>
+<title>{{customer.tickets_in_draw}} ticket{% if customer.tickets_in_draw != 1 %}s{% endif %} in tonight&#x27;s draw</title></head>
 <body style="margin:0;padding:0;background:#0B0B10;">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#0B0B10;">Closes 17:00 UTC · pool {{customer.pool_usd | default: "$1.1M"}}&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0B0B10;">
@@ -15,7 +15,7 @@
   </td></tr>
   <tr><td style="background:#15151C;border:2px solid #26262F;border-radius:20px;padding:34px 34px 30px;">
     <div style="font:800 11px/1 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#7CD486;letter-spacing:.18em;text-transform:uppercase;margin:0 0 14px;">Your tickets</div>
-    <h1 style="margin:0 0 18px;font:900 28px/1.15 'Archivo Black',Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#F4F3F8;letter-spacing:-.01em;">{{customer.tickets_in_draw}} ticket{{customer.tickets_in_draw | plus: 0 | modulo: 1}} in tonight&#x27;s draw</h1>
+    <h1 style="margin:0 0 18px;font:900 28px/1.15 'Archivo Black',Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#F4F3F8;letter-spacing:-.01em;">{{customer.tickets_in_draw}} ticket{% if customer.tickets_in_draw != 1 %}s{% endif %} in tonight&#x27;s draw</h1>
     <p style="margin:0 0 16px;font:400 16px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#C9C7D6;">You have {{customer.tickets_in_draw}} Megapot ticket(s) in tonight&#x27;s draw for {{customer.pool_usd | default: "$1.1M"}}.</p>
 <p style="margin:0 0 16px;font:400 16px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#C9C7D6;">One more trade before 17:00 UTC still counts for tomorrow&#x27;s box ({{customer.next_box_p | times: 100}}% for +{{customer.next_box_size}}).</p>
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 6px;"><tr>

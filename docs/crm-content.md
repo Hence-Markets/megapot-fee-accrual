@@ -66,7 +66,7 @@ From here every trade fills the meter, and tomorrow's trade opens streak box 2 -
 **Subject:** Box {{customer.next_box_day}} opens with today's trade
 **Preheader:** {{customer.next_box_p | times: 100}}% chance of +{{customer.next_box_size}}
 
-You are {{customer.campaign_trade_days}} days into the streak. Trade anything today and box {{customer.next_box_day}} opens: {{customer.next_box_p | times: 100}}% chance of +{{customer.next_box_size}} ticket{{customer.next_box_size | plus: 0 | modulo: 1}}.
+You are {{customer.campaign_trade_days}} days into the streak. Trade anything today and box {{customer.next_box_day}} opens: {{customer.next_box_p | times: 100}}% chance of +{{customer.next_box_size}} ticket{% if customer.next_box_size != 1 %}s{% endif %}.
 
 Meter: {{customer.next_ticket_pct}}% to your next ticket - ${{customer.volume_to_next_ticket_usd}} more volume pops it.
 
@@ -93,7 +93,7 @@ Your next box is {{customer.next_box_day}}. It opens with one trade.
 **Button:** Open my next box
 
 ## C1 · C · on megapot_tickets_minted
-**Subject:** +{{event.count}} ticket{{event.count | plus: 0 | modulo: 1}} minted - draw #{{event.drawing}}
+**Subject:** +{{event.count}} ticket{% if event.count != 1 %}s{% endif %} minted - draw #{{event.drawing}}
 **Preheader:** {{event.todayTotal}} in tonight's draw
 
 {{event.count}} Megapot ticket(s) just minted to your wallet. Draw #{{event.drawing}} closes 17:00 UTC; results land in the hub after.
@@ -103,7 +103,7 @@ Tonight you hold {{customer.tickets_in_draw}}.
 **Button:** See my tickets
 
 ## C2 · C · daily 15:00 UTC · in_tonights_draw
-**Subject:** {{customer.tickets_in_draw}} ticket{{customer.tickets_in_draw | plus: 0 | modulo: 1}} in tonight's draw
+**Subject:** {{customer.tickets_in_draw}} ticket{% if customer.tickets_in_draw != 1 %}s{% endif %} in tonight's draw
 **Preheader:** Closes 17:00 UTC · pool {{customer.pool_usd | default: "$1.1M"}}
 
 You have {{customer.tickets_in_draw}} Megapot ticket(s) in tonight's draw for {{customer.pool_usd | default: "$1.1M"}}.

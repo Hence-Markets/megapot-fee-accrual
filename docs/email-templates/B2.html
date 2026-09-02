@@ -16,7 +16,7 @@
   <tr><td style="background:#15151C;border:2px solid #26262F;border-radius:20px;padding:34px 34px 30px;">
     <div style="font:800 11px/1 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#F0C674;letter-spacing:.18em;text-transform:uppercase;margin:0 0 14px;">Streak</div>
     <h1 style="margin:0 0 18px;font:900 28px/1.15 'Archivo Black',Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#F4F3F8;letter-spacing:-.01em;">Box {{customer.next_box_day}} opens with today&#x27;s trade</h1>
-    <p style="margin:0 0 16px;font:400 16px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#C9C7D6;">You are {{customer.campaign_trade_days}} days into the streak. Trade anything today and box {{customer.next_box_day}} opens: {{customer.next_box_p | times: 100}}% chance of +{{customer.next_box_size}} ticket{{customer.next_box_size | plus: 0 | modulo: 1}}.</p>
+    <p style="margin:0 0 16px;font:400 16px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#C9C7D6;">You are {{customer.campaign_trade_days}} days into the streak. Trade anything today and box {{customer.next_box_day}} opens: {{customer.next_box_p | times: 100}}% chance of +{{customer.next_box_size}} ticket{% if customer.next_box_size != 1 %}s{% endif %}.</p>
 <p style="margin:0 0 16px;font:400 16px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#C9C7D6;">Meter: {{customer.next_ticket_pct}}% to your next ticket - ${{customer.volume_to_next_ticket_usd}} more volume pops it.</p>
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 6px;"><tr>
       <td style="border-radius:999px;background:#FFFFFF;box-shadow:0 4px 0 #2C2547;">
