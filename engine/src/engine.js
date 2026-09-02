@@ -4,6 +4,7 @@ import { rollStreakBox, boxFor } from './streakBox.js';
 import { dailyStatus, attrs, shouldEmit } from './lifecycle.js';
 import { cioIdentify } from './cio.js';
 import { readLedger, writeLedger, acquireLock, isHenceFill } from './ledger.js';
+import { takeFromDailyGate } from './gates.js';
 import { createPublicClient, createWalletClient, http, formatUnits, keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
@@ -356,9 +357,14 @@ async function buyInner() {
    try {
     const ws = wstate(s, w);
     if (ws.streakTicketsPending > 0) {
-      ws.creditUsdc += ws.streakTicketsPending * priceUsd;
-      console.log(`${w} streak grant credited: ${ws.streakTicketsPending} ticket(s) at $${priceUsd}`);
-      ws.streakTicketsPending = 0;
+      // 30/day season-wide gate on streak-box tickets (FCFS); the rest wait
+      const conv = takeFromDailyGate(s, 'streakBox', cfg.STREAK_BOX ? Number(cfg.STREAK_BOX.dailyCap || 0) : 0, day, ws.streakTicketsPending);
+      if (conv > 0) {
+        ws.creditUsdc += conv * priceUsd;
+        ws.streakTicketsPending -= conv;
+        console.log(`${w} streak grant credited: ${conv} ticket(s) at $${priceUsd} (day gate ${s.gates?.streakBox?.used}/${cfg.STREAK_BOX?.dailyCap || '-'})`);
+      }
+      if (ws.streakTicketsPending > 0) console.log(`${w} streak grant DEFERRED: ${ws.streakTicketsPending} ticket(s) wait for tomorrow (day gate full)`);
     }
     if (ws.bonusTicketsPending > 0) {
       const ftCap = cfg.FIRST_TRADE && cfg.FIRST_TRADE.dailyMintCap;

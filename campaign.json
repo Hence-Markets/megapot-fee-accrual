@@ -54,8 +54,9 @@
   "caps": {
     "ticketsPerWalletPerDay": 5,
     "ticketsPerWalletPerWeek": 15,
-    "globalBudgetUsdc": 300,
-    "$globalBudgetUsdc": "season spend ceiling: 200-ticket activation pool + volume/streak buffer. The deploy dispatch budget_usdc input overrides - keep them in step. Fund the pool wallet to at least this in USDC plus ~0.01 ETH gas."
+    "globalBudgetUsdc": 1500,
+    "$globalBudgetUsdc": "SEASON 1 BUDGET (Sarthak, 2026-09-02): 820+ tickets seeded into the pool wallet = 200 activation packs (FCFS) + 420 streak boxes (30/day x 14) + 200 multiplier rebate cap; trading-fee rebate is UNCAPPED and topped up daily. This ceiling is a spend safety stop, not the budget: keep it above wallet balance and raise it with each top-up (deploy dispatch budget_usdc overrides). Retro: Megapot sends 12 tickets/day to the pool wallet (168 over the season) - see $retroTickets.",
+    "$retroTickets": "Megapot's 12 tickets/day land in the pool wallet as NFTs. They are inventory, not USDC: to hand them to users the engine would transfer TicketNFTs instead of buying - NOT built yet. Until then they sit in stock (cover for rolled-over queues) and the ledger keeps buying with USDC."
   },
   "firstTradeBonus": {
     "minTradeUsd": 250,
@@ -122,7 +123,7 @@
         "reward": "unlocks today\u2019s card"
       }
     ],
-    "caps": "Per wallet, up to 5 tickets mint per day and 15 per rolling week; anything earned beyond the caps queues automatically and mints at the daily pace - nothing earned is lost. Activation packs mint at most 30 tickets per UTC day across all users (the gate resets at 00:00 UTC); later activations mint the next day automatically.",
+    "caps": "Per wallet, up to 5 tickets mint per day and 15 per rolling week; anything earned beyond the caps queues automatically and mints at the daily pace - nothing earned is lost. Activation packs mint at most 30 tickets per UTC day across all users and streak boxes at most 30 per UTC day (both reset at 00:00 UTC; later grants mint the next day automatically). Season pools: 200 activation-pack tickets, 420 streak-box tickets, 200 multiplier tickets; the trading-fee rebate itself is uncapped.",
     "disclosures": [
       "Tickets are entries in Megapot\u2019s daily draw. Winning is chance-based; no prize is guaranteed. Prizes, odds, draw mechanics and claims are operated by Megapot under Megapot\u2019s terms.",
       "Tickets mint non-custodially to your own wallet on Base. Hence never holds your tickets or winnings.",
@@ -190,7 +191,7 @@
   "$multipliers": "DECIDED: tiers unlock on thesis-basket VOLUME (entry $1,000 per the rules doc). The $2,500/$5,000/$10,000 rungs for 3x-5x are proposed defaults pending final sign-off. Tiers activate when basket tracking goes live; base rate applies until then.",
   "streakBox": {
     "enabled": true,
-    "poolTickets": 60,
+    "poolTickets": 420,
     "$note": "DAILY SURPRISE BOX (replaces the day-3/day-5 checkpoints while enabled): every distinct qualifying trade day since campaign start rolls one box against engine/src/streakBox.js STREAK_BOX_MATRIX - day 2 hits 60% (x1), hit-rate falls every day after, box size rises to 4-8 tickets past day 10. EV: 5-day trader ~2.2, 10-day ~4.7, 14-day ~7.8 tickets. Grants come from this shared season pool and flow through the same streakTicketsPending credit + daily caps.",
     "matrix": [
       {
@@ -265,8 +266,14 @@
       }
     ],
     "minDayUsd": 250,
-    "$minDayUsd": "a trade day only opens a box once the day's qualifying volume reaches this - a $1 trade must not roll a 60% box"
+    "$minDayUsd": "a trade day only opens a box once the day's qualifying volume reaches this - a $1 trade must not roll a 60% box",
+    "dailyCap": 30,
+    "$dailyCap": "season-wide: at most this many streak-box tickets credit per UTC day (FCFS by cycle order); the rest wait on the wallet and credit the next day - nothing earned is lost"
   },
   "requireBuilderFee": true,
-  "$requireBuilderFee": "Only fills that carried Hence's builder fee count for credit, packs and streak boxes. Direct HL trades earn nothing (they earn Hence nothing)."
+  "$requireBuilderFee": "Only fills that carried Hence's builder fee count for credit, packs and streak boxes. Direct HL trades earn nothing (they earn Hence nothing).",
+  "multiplierBonus": {
+    "poolTickets": 200,
+    "$note": "the EXTRA tickets multiplier tiers produce (above base fee rebate) are capped season-wide at 200. Tier enforcement in the engine is not built yet (tiers need the basket-volume feed) - this is the cap it must honour when it lands."
+  }
 }
