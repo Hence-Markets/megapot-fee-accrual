@@ -56,6 +56,8 @@ export const cfg = {
   // community grant) and WHEN. Fills from crossedMs on earn the tier's KICKER on top of
   // base credit: 2x = +25%, 3x = +50%, 4x = +75%, 5x = +100%. Empty feed = base rate.
   BASKET_URL: process.env.BASKET_URL || '',
+  // tiers count basket volume from here (default: the original season start), NOT from START_MS
+  TIER_SINCE_MS: Number(process.env.TIER_SINCE_MS || campaign.campaign.tierSinceMs || 0),
   KICKERS: Object.fromEntries((campaign.multipliers || []).map((m) => [Number(m.x), Number(m.kicker ?? 0)])),
   MULT_BONUS_POOL: Number(campaign.multiplierBonus?.poolTickets || 0),
   // relay-spot fee feed (the hence backend's /api/admin/spot-fills; same admin token).

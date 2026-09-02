@@ -59,7 +59,7 @@ let _tiers = {};                                    // wallet -> { x, crossedMs 
 export async function ensureBasketFeed() {
   if (!cfg.BASKET_URL) { _tiers = {}; return; }
   try {
-    const u = `${cfg.BASKET_URL}${cfg.BASKET_URL.includes('?') ? '&' : '?'}since_ms=${cfg.START_MS}`;
+    const u = `${cfg.BASKET_URL}${cfg.BASKET_URL.includes('?') ? '&' : '?'}since_ms=${cfg.TIER_SINCE_MS}`;
     const r = await fetch(u, { headers: cfg.USERS_TOKEN ? { Authorization: `Bearer ${cfg.USERS_TOKEN}` } : {} });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = await r.json();

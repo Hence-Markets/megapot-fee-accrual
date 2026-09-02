@@ -4,6 +4,8 @@
     "id": "megahence-rewards-s1",
     "name": "MegaHence Rewards - Season 1",
     "startMs": 1788379200000,
+    "tierSinceMs": 1787572740000,
+    "$tierSinceMs": "multiplier tiers count Hence AI basket volume from the ORIGINAL season start (2026-08-24 11:59 UTC) so pre-launch baskets keep their tier; startMs still governs which fills earn credit. Hub mirrors it.",
     "endMs": 1789596000000,
     "network": "mainnet",
     "$note": "Season 1 window per the official rules doc: Aug 24 2026 11:59 UTC through Sep 9 2026 00:00 UTC (15 days). start/end are hard bounds - fills outside the window never credit. Deploy dispatch start_ms must match (env overrides this sheet)."
