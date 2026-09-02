@@ -9,6 +9,7 @@ import { takeFromDailyGate } from './gates.js';
 import { createPublicClient, createWalletClient, http, formatUnits, keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
+import { parseTierRows, kickerFor } from './tiers.js';
 import { cfg, net, jackpotAbi, buyerAbi, erc20Abi } from './config.js';
 import { track, commsEnabled } from './comms.js';
 
@@ -52,6 +53,25 @@ export async function ensureFeed() {
   if (!cfg.USERS_FILE) throw new Error('Open mode (empty MEGAPOT_WHITELIST) requires USERS_URL or USERS_FILE - empty whitelist means EVERYONE, and the engine needs the user feed to know who that is.');
   _feed = _parseRows(JSON.parse(fs.readFileSync(cfg.USERS_FILE, 'utf8')));
 }
+// ── multiplier tier feed (kicker from the moment a tier is reached) ──────────
+const BASKET_CACHE = `state/basket.feed.${cfg.TARGET}.json`;
+let _tiers = {};                                    // wallet -> { x, crossedMs }
+export async function ensureBasketFeed() {
+  if (!cfg.BASKET_URL) { _tiers = {}; return; }
+  try {
+    const u = `${cfg.BASKET_URL}${cfg.BASKET_URL.includes('?') ? '&' : '?'}since_ms=${cfg.START_MS}`;
+    const r = await fetch(u, { headers: cfg.USERS_TOKEN ? { Authorization: `Bearer ${cfg.USERS_TOKEN}` } : {} });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    _tiers = parseTierRows(Array.isArray(j) ? j : j.rows || []);
+    try { fs.writeFileSync(BASKET_CACHE, JSON.stringify(_tiers)); } catch { /* best-effort */ }
+  } catch (e) {
+    try { _tiers = JSON.parse(fs.readFileSync(BASKET_CACHE, 'utf8')); console.log(`[megapot] tier feed unreachable (${e.message}) - cached tiers`); }
+    catch { _tiers = {}; console.log(`[megapot] tier feed unreachable (${e.message}) - base rate this cycle`); }
+  }
+}
+export { parseTierRows, kickerFor, splitBoost } from './tiers.js';
+const tierOf = (w) => _tiers[w] || null;
 export function eligibleWallets() {
   if (!_feed) throw new Error('user feed not loaded - ensureFeed() runs at cycle start');
   return _feed.wallets;
@@ -139,6 +159,7 @@ const qualifies = (coin, timeMs) => {
 export async function accrue() {
   guard();
   await ensureFeed();
+  await ensureBasketFeed();
   const release = acquireLock(STATE);
   try { await accrueInner(); } finally { release(); }
 }
@@ -166,13 +187,15 @@ async function accrueInner() {
    try {
     const ws = wstate(s, w);
     const fs_ = await fills(w, ws.lastFillMs);
-    let vol = 0, activationFill = null;
+    let vol = 0, activationFill = null, boostedVol = 0;
     const ftMin = cfg.FIRST_TRADE ? (cfg.FIRST_TRADE.minTradeUsd || 0) : Infinity;
+    const tier = tierOf(w);
     for (const f of fs_) {
       if (!qualifies(f.coin, f.time)) continue;
       const notional = Number(f.px) * Number(f.sz);
       if (activationFill == null && notional >= ftMin) activationFill = notional;
       vol += notional;
+      if (tier && Number(f.time) >= tier.crossedMs) boostedVol += notional;
       const dstr = new Date(f.time).toISOString().slice(0, 10);
       (ws.days ??= {})[dstr] = (ws.days[dstr] || 0) + notional;
       ws.lastFillMs = Math.max(ws.lastFillMs, f.time);
@@ -314,7 +337,22 @@ async function accrueInner() {
       ws.opsGrants[g.id] = { usd: g.usd, at: Date.now() };
       console.log(`${w} ops grant '${g.id}': +$${Number(g.usd).toFixed(2)} credit`);
     }
-    const credit = hlVol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER + spotCredit;
+    let credit = hlVol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER + spotCredit;
+    // MULTIPLIER KICKER: fills after the wallet reached its tier earn the tier's kicker on
+    // top of base credit (2x = +25% ... 5x = +100%). The extra is drawn from a season-wide
+    // pool of bonus tickets (campaign.multiplierBonus.poolTickets); pool spent = base rate.
+    const kick = tier ? kickerFor(tier.x, cfg.KICKERS) : 0;
+    if (boostedVol > 0 && kick > 0) {
+      const priceUsd = s.lastPriceUsd || 1;
+      const poolLeftUsd = cfg.MULT_BONUS_POOL > 0 ? Math.max(0, cfg.MULT_BONUS_POOL * priceUsd - (s.multiplierBonusUsd || 0)) : Infinity;
+      const extra = Math.min(poolLeftUsd, boostedVol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER * kick);
+      if (extra > 0) {
+        credit += extra;
+        s.multiplierBonusUsd = (s.multiplierBonusUsd || 0) + extra;
+        ws.multBonusUsd = (ws.multBonusUsd || 0) + extra;
+        console.log(`${w} ${tier.x}x tier (+${Math.round(kick * 100)}%): +$${extra.toFixed(4)} bonus credit on $${boostedVol.toFixed(2)} (pool used $${s.multiplierBonusUsd.toFixed(2)})`);
+      }
+    }
     ws.volumeUsd += vol;
     ws.creditUsdc += credit;
     ws.rebatedUsd = (ws.rebatedUsd || 0) + credit;
