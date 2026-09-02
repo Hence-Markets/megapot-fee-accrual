@@ -11,7 +11,7 @@ const usdOf = (t) => {
 };
 
 /** @returns the event payload (camelCase) - attrs() turns it into profile attributes */
-export function dailyStatus({ ws, rows = [], currentRound = null, priceUsd = 1, nowMs = Date.now(), startMs = 0 }) {
+export function dailyStatus({ ws, rows = [], currentRound = null, priceUsd = 1, nowMs = Date.now(), startMs = 0, poolUsd = null, mintedToday = 0 }) {
   const inDraw = currentRound == null ? 0 : rows.filter((t) => String(t.round_id ?? t.roundId ?? '') === String(currentRound)).length;
   let unclaimedUsd = 0, wonUsd = 0, claimedUsd = 0;
   for (const t of rows) {
@@ -42,6 +42,8 @@ export function dailyStatus({ ws, rows = [], currentRound = null, priceUsd = 1, 
     lastTradeAt: lastTradeMs ? new Date(lastTradeMs).toISOString() : null,
     daysSinceLastTrade,
     nextBoxDay: next.day, nextBoxP: next.p, nextBoxSize: next.size,
+    poolUsd: poolUsd == null ? null : Math.round(poolUsd),
+    mintedToday,
   };
 }
 
@@ -56,6 +58,9 @@ export function attrs(st) {
     days_since_last_trade: st.daysSinceLastTrade,
     next_box_day: st.nextBoxDay, next_box_p: st.nextBoxP, next_box_size: st.nextBoxSize,
     megapot_status_at: st.dateUtc,
+    // the two figures every email leans on, formatted for Liquid as-is
+    pool_usd: st.poolUsd == null ? '$1.1M' : `$${st.poolUsd.toLocaleString('en-US')}`,
+    minted_today: st.mintedToday,
   };
 }
 

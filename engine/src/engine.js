@@ -471,12 +471,16 @@ export async function winSweep() {
   await ensureFeed();
   const s = load();
   // the active round once per sweep - "tickets in tonight's draw" needs it
-  let currentRound = null;
+  let currentRound = null, poolUsd = null;
   try {
     const r = await fetch('https://api.megapot.io/v1/rounds/active', { signal: AbortSignal.timeout(8000) });
     const j = await r.json();
     if (j?.id != null) currentRound = String(j.id);
+    if (j?.prize_pool?.amount != null) poolUsd = Number(j.prize_pool.amount) / 10 ** Number(j.prize_pool.decimals ?? 6);
   } catch { /* status still emits without the draw count */ }
+  // tickets the pool wallet minted today across all users - the "23 tickets minted today" line
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const mintedToday = (s.purchases || []).filter((p) => p.day === todayKey && !p.refunded).reduce((a, p) => a + p.count, 0);
   for (const w of eligibleWallets()) {
     const ws = wstate(s, w);
     let rows = [];
@@ -487,7 +491,7 @@ export async function winSweep() {
     } catch { continue; }                       // venue hiccup: next cycle retries
     // TICKET LIFECYCLE: daily status event + profile attributes (once a day,
     // and again the moment the draw count or claimable money changes)
-    const st = dailyStatus({ ws, rows, currentRound, priceUsd: s.lastPriceUsd || 1, startMs: cfg.START_MS });
+    const st = dailyStatus({ ws, rows, currentRound, priceUsd: s.lastPriceUsd || 1, startMs: cfg.START_MS, poolUsd, mintedToday });
     if (shouldEmit(ws.lastStatus, st)) {
       ws.lastStatus = { dateUtc: st.dateUtc, ticketsInDraw: st.ticketsInDraw, unclaimedUsd: st.unclaimedUsd };
       await Promise.allSettled([track(w, 'megapot_daily_status', st), cioIdentify(w, attrs(st))]);
