@@ -3,8 +3,8 @@
   "campaign": {
     "id": "megahence-rewards-s1",
     "name": "MegaHence Rewards - Season 1",
-    "startMs": 1787572740000,
-    "endMs": 1788912000000,
+    "startMs": 1788386400000,
+    "endMs": 1789596000000,
     "network": "mainnet",
     "$note": "Season 1 window per the official rules doc: Aug 24 2026 11:59 UTC through Sep 9 2026 00:00 UTC (15 days). start/end are hard bounds - fills outside the window never credit. Deploy dispatch start_ms must match (env overrides this sheet)."
   },
