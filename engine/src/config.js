@@ -51,6 +51,13 @@ export const cfg = {
   // Season 1 runs OPEN - packs grant on the qualifying trade; email is a CRM
   // capture, not a gate. Set PACK_REQUIRES_EMAIL=1 to restore the hold.
   PACK_REQUIRES_EMAIL: process.env.PACK_REQUIRES_EMAIL === '1',
+  // multiplier tier feed (the hence backend's /api/admin/basket-volume; same admin token):
+  // [{wallet, x, crossedMs}] - wallets whose USER reached a tier (basket rungs or a
+  // community grant) and WHEN. Fills from crossedMs on earn the tier's KICKER on top of
+  // base credit: 2x = +25%, 3x = +50%, 4x = +75%, 5x = +100%. Empty feed = base rate.
+  BASKET_URL: process.env.BASKET_URL || '',
+  KICKERS: Object.fromEntries((campaign.multipliers || []).map((m) => [Number(m.x), Number(m.kicker ?? 0)])),
+  MULT_BONUS_POOL: Number(campaign.multiplierBonus?.poolTickets || 0),
   // relay-spot fee feed (the hence backend's /api/admin/spot-fills; same admin token).
   // Empty = spot accrual OFF even with the product enabled - the engine must never guess
   // at a feed, and Hyperliquid cannot see chain-4663 swaps at all.

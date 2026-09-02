@@ -29,26 +29,31 @@
   "multipliers": [
     {
       "x": 1,
+      "kicker": 0,
       "volumeFactor": 1.0,
       "requires": "Base rate - every qualifying trade counts."
     },
     {
       "x": 2,
-      "volumeFactor": 0.9,
+      "kicker": 0.25,
+      "volumeFactor": 0.8,
       "requires": "$1,000+ of thesis basket volume this season."
     },
     {
       "x": 3,
-      "volumeFactor": 0.8,
+      "kicker": 0.5,
+      "volumeFactor": 0.6667,
       "requires": "$2,500+ of thesis basket volume this season."
     },
     {
       "x": 4,
-      "volumeFactor": 0.7,
+      "kicker": 0.75,
+      "volumeFactor": 0.5714,
       "requires": "$5,000+ of thesis basket volume this season."
     },
     {
       "x": 5,
+      "kicker": 1.0,
       "volumeFactor": 0.5,
       "requires": "$10,000+ of thesis basket volume this season."
     }
@@ -190,7 +195,7 @@
       "$note": "one-time ops credit grant, applied once per id per wallet and recorded in the ledger - used here for the supervised first mainnet mint test"
     }
   ],
-  "$multipliers": "DECIDED: tiers unlock on thesis-basket VOLUME (entry $1,000 per the rules doc). The $2,500/$5,000/$10,000 rungs for 3x-5x are proposed defaults pending final sign-off. Tiers activate when basket tracking goes live; base rate applies until then.",
+  "$multipliers": "DECIDED 2026-09-03: tiers are KICKERS on top of base minting - 2x = +25% credit on qualifying volume, 3x = +50%, 4x = +75%, 5x = +100% (200% of fees back). Tiers unlock on thesis-basket VOLUME (entry $1,000 per the rules doc). The $2,500/$5,000/$10,000 rungs for 3x-5x are proposed defaults pending final sign-off. Tiers activate when basket tracking goes live; base rate applies until then.",
   "streakBox": {
     "enabled": true,
     "poolTickets": 420,
