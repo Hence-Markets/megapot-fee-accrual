@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { rollStreakBox, boxFor } from './streakBox.js';
 import { createPublicClient, createWalletClient, http, formatUnits, keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
@@ -184,8 +185,31 @@ export async function accrue() {
       for (const [d, v] of Object.entries(ws.days)) {
         if (new Date(d + 'T00:00:00Z').getTime() >= mondayMs && v > 0) { daysCount++; cum += v; }
       }
+      // STREAK BOX: one surprise box per distinct qualifying trade day across
+      // the whole campaign (day N = Nth such day since START_MS). Rolled once,
+      // recorded in ws.boxes so a replay never re-rolls. Shared season pool.
+      const sb = cfg.STREAK_BOX;
+      if (sb) {
+        const boxes = (ws.boxes ??= {});
+        const startDay = new Date(cfg.START_MS || 0).toISOString().slice(0, 10);
+        const newDays = Object.entries(ws.days).filter(([d, v]) => v > 0 && d >= startDay && !boxes[d]).map(([d]) => d).sort();
+        for (const d of newDays) {
+          const dayN = Object.keys(boxes).length + 1;
+          const poolLeft = (sb.poolTickets || Infinity) - (s.streakBoxPoolUsed || 0);
+          const roll = rollStreakBox(dayN, () => crypto.randomInt(1_000_000) / 1_000_000);
+          const grant = roll.won ? Math.min(roll.tickets, Math.max(0, poolLeft)) : 0;
+          boxes[d] = { day: dayN, won: roll.won, tickets: grant };
+          if (grant > 0) {
+            ws.streakTicketsPending = (ws.streakTicketsPending || 0) + grant;
+            s.streakBoxPoolUsed = (s.streakBoxPoolUsed || 0) + grant;
+          }
+          console.log(`${w} streak box day ${dayN} (${d}): ${roll.won ? `WON +${grant}` : 'empty'} (p ${roll.p}, size ${roll.size}, pool ${s.streakBoxPoolUsed || 0}/${sb.poolTickets})`);
+          await track(w, 'megapot_streak_box', { day: dayN, dateUtc: d, won: roll.won, tickets: grant, p: roll.p, size: roll.size,
+            nextDay: dayN + 1, nextP: boxFor(dayN + 1).p, nextSize: boxFor(dayN + 1).size });
+        }
+      }
       const g = ((ws.streakGrants ??= {})[weekKey] ??= {});
-      for (const cp of st.checkpoints || []) {
+      for (const cp of (sb ? [] : (st.checkpoints || []))) {
         const key = 'd' + cp.day;
         const poolLeft = (st.poolTickets || Infinity) - (s.streakPoolUsed || 0);
         if (!g[key] && daysCount >= cp.day && cum >= cp.minCumulativeUsd && poolLeft >= cp.tickets) {

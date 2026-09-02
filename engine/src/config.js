@@ -80,6 +80,7 @@ export const cfg = {
 
   FIRST_TRADE: campaign.firstTradeBonus || null,     // new-user unlock (null disables)
   STREAK: campaign.streak || null,                    // day-3/day-5 checkpoint grants (null disables)
+  STREAK_BOX: campaign.streakBox && campaign.streakBox.enabled ? campaign.streakBox : null, // daily surprise box (replaces checkpoints when enabled)
   OPS_GRANTS: campaign.opsGrants || [],               // one-time config-driven credit grants (compensations, smoke tests)
 
   // buy-tx fee ceiling: raise via MAX_FEE_GWEI when Base runs hot - buys stall

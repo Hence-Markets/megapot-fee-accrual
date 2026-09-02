@@ -1,5 +1,5 @@
 {
-  "$doc": "Campaign controller — the single spec sheet ops edits to retune the program. The engine and frontend both read this file. Env vars still hold the SECURITY gates (MEGAPOT_ACTIVE, MEGAPOT_WHITELIST, keys) — this file holds the PRODUCT parameters.",
+  "$doc": "Campaign controller \u2014 the single spec sheet ops edits to retune the program. The engine and frontend both read this file. Env vars still hold the SECURITY gates (MEGAPOT_ACTIVE, MEGAPOT_WHITELIST, keys) \u2014 this file holds the PRODUCT parameters.",
   "campaign": {
     "id": "megahence-rewards-s1",
     "name": "MegaHence Rewards - Season 1",
@@ -13,11 +13,11 @@
       "perps",
       "xyz-equities"
     ],
-    "$products": "product suites this campaign covers: perps (native HL coins) | xyz-equities (coins prefixed xyz:) | baskets (fills recorded via thesis executions — needs app stitch) | predictions (not yet supported)",
+    "$products": "product suites this campaign covers: perps (native HL coins) | xyz-equities (coins prefixed xyz:) | baskets (fills recorded via thesis executions \u2014 needs app stitch) | predictions (not yet supported)",
     "symbols": [],
     "$symbols": "empty = ALL symbols on the enabled products qualify (Season 1 rule: every product on Hence). Add tickers to restrict.",
     "excludeZeroFeePairs": [],
-    "$excludeZeroFeePairs": "symbols currently running zero-fee promos (no fee revenue → no credit), e.g. the xyz rebate campaign list"
+    "$excludeZeroFeePairs": "symbols currently running zero-fee promos (no fee revenue \u2192 no credit), e.g. the xyz rebate campaign list"
   },
   "economics": {
     "feeBps": 4.0,
@@ -106,12 +106,12 @@
         "reward": "0.04% rolls into ticket credit - unlimited"
       },
       {
-        "action": "3-day streak, $1k cumulative volume",
-        "reward": "+1 ticket (shared 20-ticket pool)"
+        "action": "Daily streak box - every day you trade",
+        "reward": "a surprise box: day 2 pays out 60% of the time (+1 ticket); later boxes hit less often but hold 2-8 tickets"
       },
       {
-        "action": "5-day streak, $5k cumulative volume",
-        "reward": "+1 more ticket"
+        "action": "Trade 10+ days of the campaign",
+        "reward": "the big boxes: 4, 5, 6 and 8-ticket drops on days 11-14"
       },
       {
         "action": "Thesis basket volume ($1,000+)",
@@ -119,14 +119,14 @@
       },
       {
         "action": "Daily check-in",
-        "reward": "unlocks today’s card"
+        "reward": "unlocks today\u2019s card"
       }
     ],
     "caps": "Per wallet, up to 5 tickets mint per day and 15 per rolling week; anything earned beyond the caps queues automatically and mints at the daily pace - nothing earned is lost. Activation packs mint at most 30 tickets per UTC day across all users (the gate resets at 00:00 UTC); later activations mint the next day automatically.",
     "disclosures": [
-      "Tickets are entries in Megapot’s daily draw. Winning is chance-based; no prize is guaranteed. Prizes, odds, draw mechanics and claims are operated by Megapot under Megapot’s terms.",
+      "Tickets are entries in Megapot\u2019s daily draw. Winning is chance-based; no prize is guaranteed. Prizes, odds, draw mechanics and claims are operated by Megapot under Megapot\u2019s terms.",
       "Tickets mint non-custodially to your own wallet on Base. Hence never holds your tickets or winnings.",
-      "Reward credit has no cash value and converts only to tickets at Megapot’s live ticket price (about $1) at mint time.",
+      "Reward credit has no cash value and converts only to tickets at Megapot\u2019s live ticket price (about $1) at mint time.",
       "Activation pack sizes are drawn at random from a fixed season pool of 200 tickets across 150 packs: 1 ticket (76.0%), 2 (17.3%), 3 (4.7%), 4 (1.3%), 5 (0.7%). Odds shift slightly as the pool depletes; every qualifying activation receives at least 1 ticket while the pool lasts.",
       "Zero-fee promotional pairs are excluded from earning while their promotion is active.",
       "A working email is required for the activation pack; draw results and win alerts are sent there. Email quality checks may be added during the season.",
@@ -187,5 +187,82 @@
       "$note": "one-time ops credit grant, applied once per id per wallet and recorded in the ledger - used here for the supervised first mainnet mint test"
     }
   ],
-  "$multipliers": "DECIDED: tiers unlock on thesis-basket VOLUME (entry $1,000 per the rules doc). The $2,500/$5,000/$10,000 rungs for 3x-5x are proposed defaults pending final sign-off. Tiers activate when basket tracking goes live; base rate applies until then."
+  "$multipliers": "DECIDED: tiers unlock on thesis-basket VOLUME (entry $1,000 per the rules doc). The $2,500/$5,000/$10,000 rungs for 3x-5x are proposed defaults pending final sign-off. Tiers activate when basket tracking goes live; base rate applies until then.",
+  "streakBox": {
+    "enabled": true,
+    "poolTickets": 60,
+    "$note": "DAILY SURPRISE BOX (replaces the day-3/day-5 checkpoints while enabled): every distinct qualifying trade day since campaign start rolls one box against engine/src/streakBox.js STREAK_BOX_MATRIX - day 2 hits 60% (x1), hit-rate falls every day after, box size rises to 4-8 tickets past day 10. EV: 5-day trader ~2.2, 10-day ~4.7, 14-day ~7.8 tickets. Grants come from this shared season pool and flow through the same streakTicketsPending credit + daily caps.",
+    "matrix": [
+      {
+        "day": 1,
+        "p": 0.15,
+        "size": 1
+      },
+      {
+        "day": 2,
+        "p": 0.6,
+        "size": 1
+      },
+      {
+        "day": 3,
+        "p": 0.45,
+        "size": 1
+      },
+      {
+        "day": 4,
+        "p": 0.35,
+        "size": 1
+      },
+      {
+        "day": 5,
+        "p": 0.3,
+        "size": 2
+      },
+      {
+        "day": 6,
+        "p": 0.25,
+        "size": 2
+      },
+      {
+        "day": 7,
+        "p": 0.22,
+        "size": 2
+      },
+      {
+        "day": 8,
+        "p": 0.2,
+        "size": 3
+      },
+      {
+        "day": 9,
+        "p": 0.18,
+        "size": 3
+      },
+      {
+        "day": 10,
+        "p": 0.16,
+        "size": 3
+      },
+      {
+        "day": 11,
+        "p": 0.15,
+        "size": 4
+      },
+      {
+        "day": 12,
+        "p": 0.14,
+        "size": 5
+      },
+      {
+        "day": 13,
+        "p": 0.13,
+        "size": 6
+      },
+      {
+        "day": 14,
+        "p": 0.12,
+        "size": 8
+      }
+    ]
+  }
 }
