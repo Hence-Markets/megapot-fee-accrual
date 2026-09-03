@@ -226,6 +226,30 @@
       "usd": 2.0,
       "id": "goodwill-97c4-plus5-2026-09-03",
       "$note": "2026-09-03 (Sarthak): 'what he owes + 5 more'. Owed = $7.60 fee credit (accrues on its own once the wallet is region-exempted via MEGAPOT_GEO_ALLOW); +5 goodwill = $2 (#22) + $1 (#24) + this $2. Total ~12 tickets, paced 5/day."
+    },
+    {
+      "wallet": "0x4cc9440dd02adcdbf2f1aa832ac8d785f62457a2",
+      "usd": 3.0,
+      "id": "grant-3-4cc944-2026-09-03",
+      "$note": "2026-09-03 16:45Z (Sarthak): +3 tickets, before the current draw. Once per id; retro-first then USDC; 5/day per-user cap."
+    },
+    {
+      "wallet": "0x18914386fd088f1f5cbce7f2d8828f200b010744",
+      "usd": 3.0,
+      "id": "grant-3-189143-2026-09-03",
+      "$note": "2026-09-03 16:45Z (Sarthak): +3 tickets, before the current draw. Once per id; retro-first then USDC; 5/day per-user cap."
+    },
+    {
+      "wallet": "0xcdeb180d67361bd4ec6948a8b4dbc5c03876a34e",
+      "usd": 3.0,
+      "id": "grant-3-cdeb18-2026-09-03",
+      "$note": "2026-09-03 16:45Z (Sarthak): +3 tickets, before the current draw. Once per id; retro-first then USDC; 5/day per-user cap."
+    },
+    {
+      "wallet": "0x119e56ba2cd364befc7e9825f77f24a32824131c",
+      "usd": 3.0,
+      "id": "grant-3-119e56-2026-09-03",
+      "$note": "2026-09-03 16:45Z (Sarthak): +3 tickets, before the current draw. Once per id; retro-first then USDC; 5/day per-user cap."
     }
   ],
   "blanketGrants": [
