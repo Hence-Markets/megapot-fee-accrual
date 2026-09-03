@@ -826,19 +826,41 @@ async function buyInner(only = null) {
 // Once per cycle: the venue API lists the pool wallet's tickets; keep the ACTIVE
 // round, unclaimed, no winnings; confirm ownerOf == pool on-chain for each. API or
 // chain down = no retro this cycle (the USDC path continues), never a guess.
+let _roundCache = null;
+// GET + parse with the HTTP status kept: on a non-2xx (429/5xx) or non-JSON body the
+// result is { _status, _body } so callers can log WHY instead of "no active round";
+// one retry after 3s covers a single throttled call.
+async function venueJson(url) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let r = null, body = '';
+    try { r = await fetchT(url); body = await r.text(); } catch (e) { body = String(e.message || e); }
+    if (r?.ok) { try { return JSON.parse(body); } catch { /* fall through */ } }
+    if (attempt === 0) { await sleep(3000); continue; }
+    return { _status: r ? r.status : 'fetch failed', _body: body };
+  }
+  return null;
+}
 async function inventory(pub, pool) {
   const none = { round: null, tokenIds: [] };
   if (!retroEnabled() || !pool) return none;
   try {
-    const active = await (await fetchT(`${cfg.MEGAPOT_API}/rounds/active`)).json();
-    const round = active?.id != null ? String(active.id) : null;
-    if (!round) throw new Error('no active round');
+    // the venue API rate-limits per IP and the win sweep shares this IP: read the status
+    // and body (a 429 is a JSON error, not an id), retry once, and fall back to the round
+    // seen earlier this day so one throttled call does not switch a whole cycle to USDC
+    const active = await venueJson(`${cfg.MEGAPOT_API}/rounds/active`);
+    let round = active?.id != null ? String(active.id) : null;
+    if (!round && _roundCache && Date.now() - _roundCache.at < 20 * 3600_000) {
+      round = _roundCache.id;
+      console.log(`[megapot] retro: rounds/active unavailable - using round ${round} seen ${Math.round((Date.now() - _roundCache.at) / 60_000)} min ago`);
+    }
+    if (!round) throw new Error(`no active round (${active?._status ?? 'no response'}: ${String(active?._body ?? '').slice(0, 100)})`);
+    _roundCache = { id: round, at: Date.now() };
     const rows = [];
     let cursor = null;
     for (let page = 0; page < 5; page++) {
       const u = `${cfg.MEGAPOT_API}/wallets/${pool}/tickets${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`;
-      const j = await (await fetchT(u)).json();
-      if (!Array.isArray(j?.data)) throw new Error('tickets shape');
+      const j = await venueJson(u);
+      if (!Array.isArray(j?.data)) throw new Error(`tickets shape (${j?._status ?? 'no response'}: ${String(j?._body ?? '').slice(0, 100)})`);
       rows.push(...j.data);
       if (!j.has_more || !j.next_cursor || j.next_cursor === cursor) break;
       cursor = j.next_cursor;
@@ -1015,6 +1037,9 @@ async function winSweepInner() {
   const sweepEmits = [];
   const one = async (w) => {
     const ws = wstate(s, w);
+    // idle wallets (no Hence volume, no tickets, no pack) cannot hold a Hence win:
+    // skip the venue call so the per-IP rate limit is spent on wallets that matter
+    if (!((ws.volumeUsd || 0) > 0 || Object.keys(ws.tickets || {}).length || ws.packGranted || (ws.lastStatus?.ticketsInDraw || 0) > 0)) return;
     let rows = [];
     try {
       const r = await fetchT(`https://api.megapot.io/v1/wallets/${w}/tickets`);
