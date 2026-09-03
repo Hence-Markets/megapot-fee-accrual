@@ -196,6 +196,12 @@
       "usd": 1.0,
       "id": "mainnet-smoke-3",
       "$note": "2026-09-03 12:40Z: supervised proof of the RETRO path - one ticket, must log 'retro inventory: N held' then a transfer, no USDC buy"
+    },
+    {
+      "wallet": "0x97c494c2fe6f23946e66829e0585eedfa71c81ff",
+      "usd": 2.0,
+      "id": "goodwill-feed-regress-2026-09-03",
+      "$note": "2026-09-03: goodwill +2 tickets. This wallet traded $18,998 of xyz (13:46-15:15Z, builder fee on every fill) while the verified-only enrollment feed had dropped it (neo-hence #223); its $7.60 fee credit re-accrues on its own once the feed fix is live - this grant is the apology on top. Retro-first: settles from pool-held round tickets."
     }
   ],
   "$multipliers": "DECIDED 2026-09-03: tiers are KICKERS on top of base minting - 2x = +25% credit on qualifying volume, 3x = +50%, 4x = +75%, 5x = +100% (200% of fees back). Tiers unlock on thesis-basket VOLUME (entry $1,000 per the rules doc). The $2,500/$5,000/$10,000 rungs for 3x-5x are proposed defaults pending final sign-off. Tiers activate when basket tracking goes live; base rate applies until then.",
