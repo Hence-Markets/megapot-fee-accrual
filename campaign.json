@@ -61,8 +61,9 @@
     }
   ],
   "caps": {
-    "ticketsPerWalletPerDay": 5,
-    "ticketsPerWalletPerWeek": 15,
+    "ticketsPerWalletPerDay": 15,
+    "ticketsPerWalletPerWeek": 30,
+    "$userCaps": "RAISED 2026-09-03 21:30Z (Sarthak): 5/day + 15/week queued a heavy trader's earned tickets behind the draw. Caps stay per USER (linked wallets share one ledger).",
     "globalBudgetUsdc": 1500,
     "$globalBudgetUsdc": "SEASON 1 BUDGET (Sarthak, 2026-09-02): 820+ tickets seeded into the pool wallet = 200 activation packs (FCFS) + 420 streak boxes (30/day x 14) + 200 multiplier rebate cap; trading-fee rebate is UNCAPPED and topped up daily. This ceiling is a spend safety stop, not the budget: keep it above wallet balance and raise it with each top-up (deploy dispatch budget_usdc overrides; LIVE dispatch 2026-09-03: budget_usdc=1500). Retro: Megapot sends 12 tickets/day to the pool wallet (168 over the season) as NFTs, not USDC - they are handed out by the retro transfer path (see `retro`) and do not count against this USDC ceiling.",
     "$retroTickets": "Megapot's 12 tickets/day land in the pool wallet as TicketNFTs (inventory, not USDC). With retro.enabled the engine transfers pool-held tickets of the ACTIVE round to users to settle credit BEFORE buying with USDC (RETRO_TRANSFERS=1, TICKET_NFT in the deploy env). Tickets from a closed round cannot be handed out and stay in stock. See `retro` below."
@@ -133,7 +134,7 @@
       }
     ],
     "caps": [
-      "Per wallet: up to 5 tickets mint per day and 15 per rolling week. Anything above that queues and mints at the same pace. Nothing earned is lost.",
+      "Per wallet: up to 15 tickets mint per day and 30 per rolling week. Anything above that queues and mints at the same pace. Nothing earned is lost.",
       "Across all users: at most 30 activation-pack tickets and 30 surprise-box tickets mint per UTC day. Later grants mint the next day.",
       "Season pools: 200 activation-pack tickets, 420 surprise-box tickets, 200 multiplier tickets. The trading rebate itself is uncapped.",
       "All daily caps reset at 00:00 UTC."
