@@ -34,3 +34,11 @@ test('intents settle on a receipt, drop when the nonce went elsewhere or 30 min 
   assert.equal(walletOnHold({ intents: [it] }, '0xz'), false);
   assert.equal(walletOnHold({}, '0xw'), false);
 });
+
+test('intent: consumed nonce with no receipt waits until the node also lacks the tx or grace passes', () => {
+  const it = { ts: Date.now() - 20_000, nonce: 5 };
+  assert.equal(classifyIntent(it, { consumed: true, receipt: null }), 'wait');
+  assert.equal(classifyIntent(it, { consumed: true, receipt: null, txFound: true }), 'wait');
+  assert.equal(classifyIntent(it, { consumed: true, receipt: null, txFound: false }), 'drop');
+  assert.equal(classifyIntent({ ts: Date.now() - 6 * 60_000, nonce: 5 }, { consumed: true, receipt: null }), 'drop');
+});
