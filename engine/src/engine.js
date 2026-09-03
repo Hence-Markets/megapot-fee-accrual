@@ -522,7 +522,7 @@ async function reconcile(s, pub, priceUsd, accountNonce, emits) {
     if (receipt === null && Date.now() - p.ts >= 30 * 60_000) txFound = await txPresent(pub, p.tx);
     const verdict = classifyPurchase(p, { receipt, txFound, accountNonce });
     if (verdict === 'transport') { console.log(`${p.wallet} reconcile: tx ${p.tx} lookup failed (transport) - unchanged`); continue; }
-    if (verdict === 'pending') { if (receipt === null) p.unfound = (p.unfound || 0) + 1; continue; }
+    if (verdict === 'pending') { if (receipt === null && txFound === false) p.unfound = (p.unfound || 0) + 1; continue; }   // count only when the node has no such tx (a mempool tx is not 'unfound')
     const ws = s.wallets[p.wallet];
     if (verdict === 'success') {
       p.verified = true;
@@ -553,7 +553,8 @@ async function reconcileIntents(s, pub, accountNonce, emits) {
   for (const it of (s.intents || []).slice()) {
     const receipt = await receiptStatus(pub, it.tx);
     const consumed = accountNonce != null && accountNonce > Number(it.nonce);
-    const verdict = classifyIntent(it, { consumed, receipt });
+    const txFound = (consumed && receipt === null) ? await txPresent(pub, it.tx) : null;
+    const verdict = classifyIntent(it, { consumed, receipt, txFound });
     if (verdict === 'wait') continue;
     s.intents = s.intents.filter((x) => x !== it);
     if (verdict === 'drop') { console.log(`${it.wallet} intent ${it.kind} nonce ${it.nonce} dropped (never mined, no debit)`); continue; }

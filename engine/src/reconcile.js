@@ -29,11 +29,16 @@ export function classifyPurchase(p, { receipt, txFound, accountNonce, nowMs = Da
  * -> 'settle' (receipt found: book it), 'drop' (nonce used by another tx, or stale
  *    and never consumed), 'wait' (still possible)
  */
-export function classifyIntent(intent, { consumed, receipt, nowMs = Date.now() }) {
+export const CONSUMED_GRACE_MS = 5 * 60_000;
+export function classifyIntent(intent, { consumed, receipt, txFound = null, nowMs = Date.now() }) {
   if (receipt === 'success' || receipt === 'reverted') return 'settle';
   if (receipt === undefined) return 'wait';
   const age = nowMs - Number(intent.ts || 0);
-  if (consumed) return 'drop';                       // nonce spent by a different tx: this one can never mine
+  // nonce spent by a different tx: this one can never mine. But "consumed" can come
+  // from a node one block AHEAD of the one that answered the receipt lookup
+  // (load-balanced public RPCs), so a consumed nonce with no receipt is only dropped
+  // once the node also has no such tx, or after a grace period - never on first sight.
+  if (consumed) return (txFound === false || age >= CONSUMED_GRACE_MS) ? 'drop' : 'wait';
   return age >= DROP_AFTER_MS ? 'drop' : 'wait';
 }
 
