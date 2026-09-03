@@ -26,7 +26,8 @@ test('intents settle on a receipt, drop when the nonce went elsewhere or 30 min 
   const it = { ts: t0, nonce: 3, tx: '0xint', wallet: '0xw' };
   assert.equal(classifyIntent(it, { consumed: true, receipt: 'success', nowMs: t0 + 1 }), 'settle');
   assert.equal(classifyIntent(it, { consumed: true, receipt: 'reverted', nowMs: t0 + 1 }), 'settle');
-  assert.equal(classifyIntent(it, { consumed: true, receipt: null, nowMs: t0 + 1 }), 'drop', 'another tx took the nonce');
+  assert.equal(classifyIntent(it, { consumed: true, receipt: null, txFound: false, nowMs: t0 + 1 }), 'drop', 'another tx took the nonce and the node has no such tx');
+  assert.equal(classifyIntent(it, { consumed: true, receipt: null, nowMs: t0 + 1 }), 'wait', 'consumed on one node, no receipt on another: wait for grace');
   assert.equal(classifyIntent(it, { consumed: false, receipt: null, nowMs: t0 + 1 }), 'wait');
   assert.equal(classifyIntent(it, { consumed: false, receipt: null, nowMs: t0 + DROP_AFTER_MS }), 'drop');
   assert.equal(classifyIntent(it, { consumed: true, receipt: undefined, nowMs: t0 + DROP_AFTER_MS }), 'wait', 'transport error: decide next cycle');
