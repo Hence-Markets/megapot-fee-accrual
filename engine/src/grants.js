@@ -1,0 +1,29 @@
+// Blanket grants: one-time credit for every wallet that meets a campaign-wide condition, as
+// opposed to opsGrants which name a wallet. Season 1 use: "+2 tickets to everyone who traded
+// on Hence up to <date>" after the 2026-09-03 enrollment-feed regression. Pure decision helper
+// so the money path stays testable without a ledger or RPC.
+//
+// campaign.blanketGrants: [{ id, usd, requires: 'traded', beforeDate: 'YYYY-MM-DD' }]
+//   requires 'traded'  -> the wallet has qualifying in-window volume (fee-bearing fills)
+//   beforeDate         -> only wallets whose FIRST recorded trade day is on/before this UTC
+//                         date (a cohort snapshot, not a standing activation bonus); omit for
+//                         an open-ended grant.
+export function blanketGrantsDue(ws, grants, { vol = 0, today } = {}) {
+  const out = [];
+  for (const g of grants || []) {
+    if (!g || !g.id || !(Number(g.usd) > 0)) continue;
+    if (ws.opsGrants && ws.opsGrants[g.id]) continue;
+    if ((g.requires || 'traded') !== 'traded') continue;
+    const total = (Number(ws.volumeUsd) || 0) + (Number(vol) || 0);
+    if (!(total > 0)) continue;
+    if (g.beforeDate) {
+      const days = Object.entries(ws.days || {}).filter(([, v]) => Number(v) > 0).map(([d]) => d);
+      if (vol > 0 && today) days.push(today);
+      if (!days.length) continue;
+      const first = days.sort()[0];
+      if (first > String(g.beforeDate)) continue;
+    }
+    out.push(g);
+  }
+  return out;
+}

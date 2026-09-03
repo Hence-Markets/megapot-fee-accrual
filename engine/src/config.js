@@ -141,7 +141,8 @@ export const cfg = {
   REQUIRE_BUILDER_FEE: campaign.requireBuilderFee !== false,
   // minting stops this long after END_MS - queued tickets still drain, nothing new accrues
   BUY_GRACE_MS: 3 * 86400000,
-  OPS_GRANTS: campaign.opsGrants || [],               // one-time config-driven credit grants (compensations, smoke tests)
+  OPS_GRANTS: campaign.opsGrants || [],
+  BLANKET_GRANTS: campaign.blanketGrants || [],       // one-time credit for every wallet meeting a campaign-wide condition (grants.js)               // one-time config-driven credit grants (compensations, smoke tests)
 
   // buy-tx fee ceiling: raise via MAX_FEE_GWEI when Base runs hot - buys stall
   // (retrying each cycle) while the base fee sits above this cap.
