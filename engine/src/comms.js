@@ -6,6 +6,7 @@
 // exactly the leg that failed.
 import { cfg } from './config.js';
 import { cioTrack, cioEnabled } from './cio.js';
+import { chunkRows } from './status.js';
 
 export const phEnabled = () => !!cfg.POSTHOG_KEY;
 export const commsEnabled = () => cioEnabled() || phEnabled();
@@ -62,4 +63,25 @@ export async function postGrant(body) {
     console.log(`[grants] failed: ${e.message}`);
     return false;
   }
+}
+
+/** per-wallet status rows + engine doc -> hence backend (STATUS_URL). At most 500 rows per
+ *  POST; every chunk must land (2xx) for the outbox entry to clear. Fail-open like the rest. */
+export async function postStatus(body) {
+  if (!cfg.STATUS_URL) return null;
+  for (const rows of chunkRows(body?.rows || [])) {
+    try {
+      const r = await fetch(cfg.STATUS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(cfg.USERS_TOKEN ? { Authorization: `Bearer ${cfg.USERS_TOKEN}` } : {}) },
+        body: JSON.stringify({ rows, engine: body?.engine || {} }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) { console.log(`[status] ${r.status}`); return false; }
+    } catch (e) {
+      console.log(`[status] failed: ${e.message}`);
+      return false;
+    }
+  }
+  return true;
 }

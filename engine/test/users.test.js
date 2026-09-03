@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRows, userWallets, userPackGranted, userTicketCounts, userCapLeft, userBoxDates } from '../src/users.js';
+import { parseRows, userWallets, userPackGranted, userTicketCounts, userCapLeft, userCapRoom, userBoxDates } from '../src/users.js';
 
 const A = '0x' + 'a'.repeat(40), B = '0x' + 'b'.repeat(40), C = '0x' + 'c'.repeat(40);
 
@@ -38,4 +38,11 @@ test('streak-box days are shared across the user: a date one wallet rolled is no
   const s = { users: { [A]: 'u1', [B]: 'u1' }, wallets: { [A]: { boxes: { '2026-09-03': {}, '2026-09-04': {} } }, [B]: { boxes: { '2026-09-04': {} } } } };
   assert.deepEqual([...userBoxDates(s, B)].sort(), ['2026-09-03', '2026-09-04']);
   assert.equal(userBoxDates({ wallets: {} }, C).size, 0);
+});
+
+test('cap room is reported for the user and for the wallet alone (status rows tell them apart)', () => {
+  const now = Date.UTC(2026, 8, 5, 12);
+  const s = { users: { [A]: 'u1', [B]: 'u1' }, wallets: { [A]: { tickets: { '2026-09-05': 1 } }, [B]: { tickets: { '2026-09-05': 4, '2026-09-01': 2 } } } };
+  assert.deepEqual(userCapRoom(s, A, '2026-09-05', { perDay: 5, perWeek: 15 }, now), { dayLeft: 0, weekLeft: 8, ownDayLeft: 4, ownWeekLeft: 14 });
+  assert.deepEqual(userCapRoom(s, C, '2026-09-05', { perDay: 5, perWeek: 15 }, now), { dayLeft: 5, weekLeft: 15, ownDayLeft: 5, ownWeekLeft: 15 }, 'unknown wallet: full room');
 });
