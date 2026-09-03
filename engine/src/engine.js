@@ -7,52 +7,65 @@ import { readLedger, writeLedger, acquireLock, isHenceFill } from './ledger.js';
 import { foldSpotFills } from './spotFills.js';
 import { takeFromDailyGate } from './gates.js';
 import { planApproval } from './allowance.js';
-import { createPublicClient, createWalletClient, http, formatUnits, keccak256, toHex } from 'viem';
+import { createPublicClient, createWalletClient, http, formatUnits, formatEther, keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
 import { parseTierRows, kickerFor } from './tiers.js';
 import { cfg, net, jackpotAbi, buyerAbi, erc20Abi } from './config.js';
 import { track, commsEnabled } from './comms.js';
+import { parseRows, userPackGranted, userCapLeft, userBoxDates } from './users.js';
+import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak } from './safety.js';
+import { fileBucket, backoffMs } from './ratelimit.js';
+import { classifyPurchase, classifyIntent, walletOnHold } from './reconcile.js';
+import { mapLimit } from './pool.js';
+import { signPinned } from './txsign.js';
+import { needsRewind } from './reset.js';
+
+// every upstream call is bounded: one hung feed must never freeze a cycle
+const FETCH_MS = 12_000;
+const fetchT = (url, opts = {}) => fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_MS) });
+const authHeaders = () => (cfg.USERS_TOKEN ? { Authorization: `Bearer ${cfg.USERS_TOKEN}` } : {});
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Eligible set per the feature-gates conventions: whitelist = pre-production
 // cohort; empty whitelist = open mode, full user feed. Pause = ACTIVE=0.
 // Open mode takes the feed from USERS_URL (the hence backend's admin wallet
 // feed, refreshed each cycle with a disk cache to ride out outages) or
 // USERS_FILE (static JSON). Rows may be plain "0x…" strings or
-// {wallet, emailBound} objects; emailBound gates ACTIVATION PACKS only -
-// volume accrual never depends on it.
+// {wallet, emailBound, user} objects; emailBound gates ACTIVATION PACKS only -
+// volume accrual never depends on it. `user` groups linked wallets (users.js).
 const FEED_CACHE = `state/users.feed.${cfg.TARGET}.json`;
 let _feed = null;
-const _parseRows = (rows) => {
-  const wallets = [], emailBound = {};
-  for (const row of rows) {
-    const obj = typeof row === 'object' && row !== null;
-    const w = String(obj ? row.wallet : row).trim().toLowerCase();
-    if (!/^0x[a-f0-9]{40}$/.test(w)) continue;    // malformed entries drop - never match
-    wallets.push(w);
-    emailBound[w] = obj ? !!(row.emailBound ?? row.email_bound) : false;   // a bare address proves nothing
-  }
-  return { wallets, emailBound };
-};
+const readFeedCache = () => { try { return JSON.parse(fs.readFileSync(FEED_CACHE, 'utf8')); } catch { return null; } };
 export async function ensureFeed() {
-  if (cfg.WHITELIST.length) { _feed = { wallets: cfg.WHITELIST, emailBound: null }; return; }
+  if (cfg.WHITELIST.length) { _feed = { wallets: cfg.WHITELIST, emailBound: null, users: {} }; return; }
   if (cfg.USERS_URL) {
     try {
-      const r = await fetch(cfg.USERS_URL, { headers: cfg.USERS_TOKEN ? { Authorization: `Bearer ${cfg.USERS_TOKEN}` } : {} });
+      const r = await fetchT(cfg.USERS_URL, { headers: authHeaders() });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
-      _feed = _parseRows(Array.isArray(j) ? j : j.wallets || []);
-      try { fs.writeFileSync(FEED_CACHE, JSON.stringify(_feed)); } catch { /* cache is best-effort */ }
+      const fresh = parseRows(Array.isArray(j) ? j : j.wallets || []);
+      const cached = readFeedCache();
+      const cachedN = cached?.wallets?.length || 0;
+      if (shouldCacheFeed(fresh.wallets.length, cachedN)) {
+        try { fs.writeFileSync(FEED_CACHE, JSON.stringify(fresh)); } catch { /* cache is best-effort */ }
+        _feed = fresh;
+      } else {
+        // an empty feed runs on the cached copy; a shrunken one runs as served but the
+        // cache keeps the larger set for the next outage
+        console.log(`[megapot] ALERT user feed returned ${fresh.wallets.length} wallets vs ${cachedN} cached - cache NOT overwritten`);
+        _feed = fresh.wallets.length ? fresh : (cached || fresh);
+      }
     } catch (e) {
-      try {
-        _feed = JSON.parse(fs.readFileSync(FEED_CACHE, 'utf8'));
-        console.log(`[megapot] user feed unreachable (${e.message}) - continuing on cached feed (${_feed.wallets.length} wallets)`);
-      } catch { throw new Error(`Open mode: user feed unreachable and no cache yet (${e.message})`); }
+      const cached = readFeedCache();
+      if (!cached) throw new Error(`Open mode: user feed unreachable and no cache yet (${e.message})`);
+      _feed = cached;
+      console.log(`[megapot] user feed unreachable (${e.message}) - continuing on cached feed (${_feed.wallets.length} wallets)`);
     }
     return;
   }
   if (!cfg.USERS_FILE) throw new Error('Open mode (empty MEGAPOT_WHITELIST) requires USERS_URL or USERS_FILE - empty whitelist means EVERYONE, and the engine needs the user feed to know who that is.');
-  _feed = _parseRows(JSON.parse(fs.readFileSync(cfg.USERS_FILE, 'utf8')));
+  _feed = parseRows(JSON.parse(fs.readFileSync(cfg.USERS_FILE, 'utf8')));
 }
 // ── multiplier tier feed (kicker from the moment a tier is reached) ──────────
 const BASKET_CACHE = `state/basket.feed.${cfg.TARGET}.json`;
@@ -61,7 +74,7 @@ export async function ensureBasketFeed() {
   if (!cfg.BASKET_URL) { _tiers = {}; return; }
   try {
     const u = `${cfg.BASKET_URL}${cfg.BASKET_URL.includes('?') ? '&' : '?'}since_ms=${cfg.TIER_SINCE_MS}`;
-    const r = await fetch(u, { headers: cfg.USERS_TOKEN ? { Authorization: `Bearer ${cfg.USERS_TOKEN}` } : {} });
+    const r = await fetchT(u, { headers: authHeaders() });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = await r.json();
     _tiers = parseTierRows(Array.isArray(j) ? j : j.rows || []);
@@ -79,13 +92,18 @@ export function eligibleWallets() {
 }
 // whitelist test cohorts (emailBound null) skip the email gate
 const emailBound = (w) => (_feed && _feed.emailBound != null ? !!_feed.emailBound[w] : true);
+// the wallet -> user map lives on the ledger so caps stay per user even when the feed is
+// cached or a wallet later drops off it
+const syncUsers = (s) => { for (const [w, u] of Object.entries(_feed?.users || {})) (s.users ??= {})[w] = u; };
 
 // One ledger PER NETWORK: caps, spend and purchase records must not leak
 // across the testnet→mainnet cutover (a $0.01 rehearsal ticket must never eat
 // a $1 mainnet allowance, and reconcile must never look up a testnet tx on
 // mainnet). The legacy un-suffixed file predates the split and was testnet.
-const STATE = `state/ledger.${cfg.TARGET}.json`;
+export const STATE = `state/ledger.${cfg.TARGET}.json`;
 const LEGACY_STATE = 'state/ledger.json';
+const HEARTBEAT = `state/heartbeat.${cfg.TARGET}`;
+const beat = () => { try { fs.mkdirSync('state', { recursive: true }); fs.writeFileSync(HEARTBEAT, String(Date.now())); } catch { /* ops healthcheck only */ } };
 
 // ── ledger ──────────────────────────────────────────────────────────────────
 // One JSON file: per-wallet fee credit (USDC, 6dp int), checkpoint of the last
@@ -107,17 +125,40 @@ async function flush(emits) {
 }
 const wstate = (s, w) => (s.wallets[w] ??= { creditUsdc: 0, lastFillMs: cfg.START_MS, volumeUsd: 0, tickets: {} });
 
+// ── ops alerts: one log line every time, one PostHog event per kind per hour ──
+const ALERT_ID = `engine:${cfg.TARGET}`;
+const alertKey = (kind) => `last${kind.replace(/(^|_)(\w)/g, (_, __, c) => c.toUpperCase())}Ms`;   // low_funds -> lastLowFundsMs
+async function alert(s, kind, data = {}) {
+  console.log(`[megapot] ALERT ${kind} ${Object.entries(data).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+  s.alerts ??= {};
+  const key = alertKey(kind);
+  if (!shouldAlert(s.alerts, key)) return false;
+  s.alerts[key] = Date.now();
+  await track(ALERT_ID, 'megapot_engine_alert', { kind, ...data });
+  return true;
+}
+
 // ── venue fills (Hyperliquid public info API — venue-authoritative) ────────
+// Token bucket shared with the fast lane (file-backed), backoff on 429.
+const hlBucket = fileBucket(`state/hl.bucket.${cfg.TARGET}.json`, { cap: cfg.HL_RPM });
+async function hlInfo(body) {
+  for (let attempt = 0; ; attempt++) {
+    await hlBucket.take();
+    const r = await fetchT(cfg.HL_INFO, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (r.status === 429) {
+      if (attempt >= 3) throw new Error('HL info 429 (rate limited after 3 retries)');
+      await sleep(backoffMs(attempt));
+      continue;
+    }
+    if (!r.ok) throw new Error(`HL info ${r.status}`);
+    return r.json();
+  }
+}
 async function fills(wallet, sinceMs) {
   const out = [];
   let start = sinceMs;
   for (let page = 0; page < 10; page++) { // paginate userFillsByTime (2k cap per call)
-    const r = await fetch(cfg.HL_INFO, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'userFillsByTime', user: wallet, startTime: start + 1, endTime: Date.now() }),
-    });
-    if (!r.ok) throw new Error(`HL info ${r.status}`);
-    const batch = await r.json();
+    const batch = await hlInfo({ type: 'userFillsByTime', user: wallet, startTime: start + 1, endTime: Date.now() });
     if (!Array.isArray(batch) || !batch.length) break;
     out.push(...batch.filter((f) => isHenceFill(f, cfg.REQUIRE_BUILDER_FEE)));
     if (batch.length < 2000) break;
@@ -134,9 +175,7 @@ async function fills(wallet, sinceMs) {
 // history without re-crediting anyone. Season-scale bound: the feed caps at 5000 rows,
 // far above S1's spot volume; revisit before a season where that could truncate.
 async function spotFills(sinceMs) {
-  const r = await fetch(`${cfg.SPOT_FILLS_URL}?since=${sinceMs}`, {
-    headers: cfg.USERS_TOKEN ? { Authorization: `Bearer ${cfg.USERS_TOKEN}` } : {},
-  });
+  const r = await fetchT(`${cfg.SPOT_FILLS_URL}?since=${sinceMs}`, { headers: authHeaders() });
   if (!r.ok) throw new Error(`spot feed ${r.status}`);
   const j = await r.json();
   if (!Array.isArray(j?.fills)) throw new Error('spot feed shape');
@@ -166,6 +205,7 @@ export async function accrue(only = null) {
 }
 async function accrueInner(only = null) {
   const s = load();
+  syncUsers(s);
   const emits = [];
   const grantsOpen = !cfg.END_MS || Date.now() <= cfg.END_MS;   // no new packs/boxes after the season
   // spot feed: fetched once per cycle, grouped per wallet. Unavailable = spot accrual
@@ -184,14 +224,19 @@ async function accrueInner(only = null) {
       spotFeedOk = true;
     } catch (e) { console.log(`spot feed unavailable this cycle: ${e.message}`); }
   }
-  const accrueTargets = only ? eligibleWallets().filter((x) => only.has(x)) : eligibleWallets();
+  // full sweeps start at a different wallet each cycle so a rate-limited tail rotates
+  const fullSweep = !only;
+  if (fullSweep) s.accrueCycle = (s.accrueCycle || 0) + 1;
+  const accrueTargets = rotate(only ? eligibleWallets().filter((x) => only.has(x)) : eligibleWallets(), fullSweep ? s.accrueCycle : 0);
+  let skipped = 0;
   for (const w of accrueTargets) {
    try {
     const ws = wstate(s, w);
     // A wallet first seen under a LATER start (its checkpoint was initialised to that
     // START_MS) must not skip fills that a subsequently EARLIER start makes eligible -
-    // safe only while it has never been credited (no double-credit possible).
-    if (!(ws.volumeUsd > 0) && ws.lastFillMs > cfg.START_MS) ws.lastFillMs = cfg.START_MS;
+    // safe only while it has never been credited (no double-credit possible). A reset
+    // wallet (resetMs) keeps its reset-time checkpoint (reset.js).
+    if (needsRewind(ws, cfg.START_MS)) ws.lastFillMs = cfg.START_MS;
     const fs_ = await fills(w, ws.lastFillMs);
     let vol = 0, activationFill = null, boostedVol = 0;
     const ftMin = cfg.FIRST_TRADE ? (cfg.FIRST_TRADE.minTradeUsd || 0) : Infinity;
@@ -223,7 +268,7 @@ async function accrueInner(only = null) {
         console.log(`${w} +$${sf.vol.toFixed(2)} spot volume (${sf.count} fill(s)) → +$${sf.credit.toFixed(4)} exact-fee credit`);
       }
     }
-    // activation pack: granted ONCE per wallet, on the wallet's first
+    // activation pack: granted ONCE per USER (any linked wallet), on the first
     // qualifying fill of >= minTradeUsd - a smaller starter trade must never
     // lock the pack out, so the qualifying notional persists on the ledger
     // until it can grant. With PACK_REQUIRES_EMAIL=1 the grant also waits for a
@@ -231,9 +276,9 @@ async function accrueInner(only = null) {
     // hold. Volume accrual is never held.
     const ft = cfg.FIRST_TRADE;
     if (ft) {
-      const granted = !!(ws.packGranted || ws.firstTradeBonus || ws.bonusTicketsPending);
+      const granted = userPackGranted(s, w);
       if (!granted && activationFill != null) ws.packQualifiedUsd = Math.max(ws.packQualifiedUsd || 0, activationFill);
-      // TnC: a single $250 fill OR $250 of COMBINED in-window volume qualifies -
+      // TnC: a single $100 fill OR $100 of COMBINED in-window volume qualifies -
       // small traders reach the pack by adding up, not only by one big trade.
       if (!granted && ((ws.volumeUsd || 0) + vol) >= (ft.minTradeUsd || 0)) {
         ws.packQualifiedUsd = Math.max(ws.packQualifiedUsd || 0, (ws.volumeUsd || 0) + vol);
@@ -273,28 +318,36 @@ async function accrueInner(only = null) {
     const st = cfg.STREAK;
     const sb = cfg.STREAK_BOX;
     // STREAK BOX: one surprise box per distinct qualifying trade day across
-    // the whole campaign (day N = Nth such day since START_MS). Rolled once,
-    // recorded in ws.boxes so a replay never re-rolls. Shared season pool.
-    // A day counts once its Hence volume reaches minDayUsd - not on a $1 fill.
+    // the whole campaign (day N = Nth such day since START_MS), counted across
+    // every wallet of the USER. Rolled once, recorded in ws.boxes so a replay
+    // never re-rolls; a date another linked wallet already rolled is not rolled
+    // again. Shared season pool. A day counts once its Hence volume reaches
+    // minDayUsd - not on a $1 fill.
     if (sb && ws.days && grantsOpen) {
       const boxes = (ws.boxes ??= {});
+      const boxed = userBoxDates(s, w);
       const matrix = Array.isArray(sb.matrix) && sb.matrix.length >= 1 && sb.matrix.every((b) => b && b.p >= 0 && b.p <= 1 && b.size >= 0) ? sb.matrix : undefined;
       const startDay = new Date(cfg.START_MS || 0).toISOString().slice(0, 10);
       const minDay = Number(sb.minDayUsd || 0);
-      const newDays = Object.entries(ws.days).filter(([d, v]) => v >= Math.max(minDay, 1e-9) && d >= startDay && !boxes[d]).map(([d]) => d).sort();
+      const newDays = Object.entries(ws.days).filter(([d, v]) => v >= Math.max(minDay, 1e-9) && d >= startDay && !boxed.has(d)).map(([d]) => d).sort();
       for (const d of newDays) {
-        const dayN = Object.keys(boxes).length + 1;
+        const dayN = boxed.size + 1;
         const poolLeft = (sb.poolTickets || Infinity) - (s.streakBoxPoolUsed || 0);
         const roll = rollStreakBox(dayN, () => crypto.randomInt(1_000_000) / 1_000_000, matrix);
         const grant = roll.won ? Math.min(roll.tickets, Math.max(0, poolLeft)) : 0;
-        boxes[d] = { day: dayN, won: roll.won, tickets: grant };
+        // a winning roll against an empty pool is an EMPTY box to the user - never "won 0"
+        const poolExhausted = roll.won && grant <= 0;
+        const won = roll.won && grant > 0;
+        boxes[d] = { day: dayN, won, tickets: grant, ...(poolExhausted ? { poolExhausted: true } : {}) };
+        boxed.add(d);
         if (grant > 0) {
           ws.streakTicketsPending = (ws.streakTicketsPending || 0) + grant;
           s.streakBoxPoolUsed = (s.streakBoxPoolUsed || 0) + grant;
         }
-        console.log(`${w} streak box day ${dayN} (${d}): ${roll.won ? `WON +${grant}` : 'empty'} (p ${roll.p}, size ${roll.size}, pool ${s.streakBoxPoolUsed || 0}/${sb.poolTickets})`);
+        console.log(`${w} streak box day ${dayN} (${d}): ${won ? `WON +${grant}` : poolExhausted ? 'empty (pool exhausted)' : 'empty'} (p ${roll.p}, size ${roll.size}, pool ${s.streakBoxPoolUsed || 0}/${sb.poolTickets})`);
         const nb = boxFor(dayN + 1, matrix);
-        emits.push([w, 'megapot_streak_box', { day: dayN, dateUtc: d, won: roll.won, tickets: grant, p: roll.p, size: roll.size,
+        emits.push([w, 'megapot_streak_box', { day: dayN, dateUtc: d, won, tickets: grant, p: roll.p, size: roll.size,
+          ...(poolExhausted ? { poolExhausted: true } : {}),
           nextDay: dayN + 1, nextP: nb.p, nextSize: nb.size }]);
       }
     }
@@ -380,46 +433,103 @@ async function accrueInner(only = null) {
     // one wallet's venue/RPC failure never stalls the others: its checkpoint
     // is untouched, so the next cycle retries it from where it left off
     emits.length = 0;
+    skipped++;
     console.log(`${w} accrue skipped this cycle: ${e.message}`);
    }
   }
+  if (fullSweep) {
+    const { streak, alert: fire } = accrueSkipStreak(s.accrueSkipStreak, skipped);
+    s.accrueSkipStreak = streak;
+    if (fire) await alert(s, 'accrue_skipped', { skipped, wallets: accrueTargets.length, cycles: streak });
+    if (skipped > 0 && !fire) console.log(`[megapot] accrue skipped ${skipped} wallet(s) (${streak} cycle(s) in a row)`);
+  }
   save(s);
+  beat();
   return s;
 }
 
+// ── chain facts for reconcile ─────────────────────────────────────────────────
+// "not found" (the node has no receipt / no tx) is a fact; a transport error is not.
+const isNotFound = (e) => /NotFound/.test(String(e?.name || '')) || /could not be found|not found/i.test(String(e?.shortMessage || e?.message || ''));
+async function receiptStatus(pub, hash) {
+  try { const rc = await pub.getTransactionReceipt({ hash }); return rc?.status ?? null; }
+  catch (e) { return isNotFound(e) ? null : undefined; }
+}
+async function txPresent(pub, hash) {
+  try { const t = await pub.getTransaction({ hash }); return !!t; }
+  catch (e) { return isNotFound(e) ? false : null; }
+}
+const latestNonce = async (pub, address) => {
+  if (!address) return null;
+  try { return await pub.getTransactionCount({ address, blockTag: 'latest' }); } catch { return null; }
+};
+const mintedEvent = (p, ws) => ['megapot_tickets_minted', { count: p.count, txHash: p.tx, drawing: String(p.drawing ?? ''), priceUsd: p.priceUsd,
+  todayTotal: ws?.tickets?.[p.day] || p.count, creditLeftUsd: +Number(ws?.creditUsdc || 0).toFixed(4) }];
+
 // reconcile: every recorded purchase carries its tx hash; verification is the
 // on-chain receipt itself, not an indexer's opinion. A purchase whose receipt
-// is reverted (or vanished after a reorg window) refunds credit, cap and
-// budget precisely. Mainnet-grade: no API-lag false positives.
-async function reconcile(s, pub, priceUsd) {
+// is reverted refunds credit, cap and budget precisely. A missing receipt is
+// NOT a revert: the record is dropped (refunded) only when it is >= 30 min old,
+// its nonce has been consumed by another tx, and the node has neither the tx
+// nor a receipt (reconcile.js). Transport errors change nothing.
+async function reconcile(s, pub, priceUsd, accountNonce, emits) {
   for (const p of s.purchases || []) {
     if (p.verified) continue;
-    let status = null;
-    try {
-      const rc = await pub.getTransactionReceipt({ hash: p.tx });
-      status = rc?.status ?? null;
-    } catch { /* not found yet: leave unverified, re-check next cycle */ }
-    if (status === null) {
-      p.unfound = (p.unfound || 0) + 1;
-      if (p.unfound >= 12) status = 'reverted';   // dropped from the mempool / reorged away: treat as never mined
+    const receipt = await receiptStatus(pub, p.tx);
+    let txFound = null;
+    if (receipt === null && Date.now() - p.ts >= 30 * 60_000) txFound = await txPresent(pub, p.tx);
+    const verdict = classifyPurchase(p, { receipt, txFound, accountNonce });
+    if (verdict === 'transport') { console.log(`${p.wallet} reconcile: tx ${p.tx} lookup failed (transport) - unchanged`); continue; }
+    if (verdict === 'pending') { if (receipt === null) p.unfound = (p.unfound || 0) + 1; continue; }
+    const ws = s.wallets[p.wallet];
+    if (verdict === 'success') {
+      p.verified = true;
+      if (!p.notified) { p.notified = true; emits.push([p.wallet, ...mintedEvent(p, ws)]); console.log(`${p.wallet} reconcile: tx ${p.tx} confirmed late - ${p.count} ticket(s)`); }
+      continue;
     }
-    if (status === 'success') { p.verified = true; continue; }
-    if (status === 'reverted') {
-      console.log(`${p.wallet} reconcile: tx ${p.tx} reverted — refunding ${p.count} ticket(s)`);
-      const ws = s.wallets[p.wallet];
-      const price = p.priceUsd ?? priceUsd;
-      s.spentUsdc = Math.max(0, s.spentUsdc - p.count * price);
-      if (ws) {
-        ws.creditUsdc += p.count * price;
-        if (ws.tickets?.[p.day] != null) {
-          ws.tickets[p.day] = Math.max(0, ws.tickets[p.day] - p.count);
-          if (!ws.tickets[p.day]) delete ws.tickets[p.day];
-        }
+    // reverted on-chain, or dropped from the mempool and its nonce gone: refund exactly what was debited
+    console.log(`${p.wallet} reconcile: ${verdict === 'dropped' ? 'dropped (unfound)' : 'tx reverted'} ${p.tx} — refunding ${p.count} ticket(s)`);
+    const price = p.priceUsd ?? priceUsd;
+    s.spentUsdc = Math.max(0, s.spentUsdc - p.count * price);
+    if (ws) {
+      ws.creditUsdc += p.count * price;
+      if (ws.tickets?.[p.day] != null) {
+        ws.tickets[p.day] = Math.max(0, ws.tickets[p.day] - p.count);
+        if (!ws.tickets[p.day]) delete ws.tickets[p.day];
       }
-      p.verified = true; p.refunded = true;
     }
+    p.verified = true; p.refunded = true; p.dropped = verdict === 'dropped';
   }
   s.purchases = (s.purchases || []).filter((p) => !p.verified || Date.now() - p.ts < 7 * 86400000);
+}
+
+// intents: persisted BEFORE broadcast with the locally-signed hash. Consumed nonce +
+// receipt = book the purchase now (debit on success); nonce spent by something else,
+// or 30 min without consumption = the tx can never mine, drop it with no debit.
+async function reconcileIntents(s, pub, accountNonce, emits) {
+  for (const it of (s.intents || []).slice()) {
+    const receipt = await receiptStatus(pub, it.tx);
+    const consumed = accountNonce != null && accountNonce > Number(it.nonce);
+    const verdict = classifyIntent(it, { consumed, receipt });
+    if (verdict === 'wait') continue;
+    s.intents = s.intents.filter((x) => x !== it);
+    if (verdict === 'drop') { console.log(`${it.wallet} intent ${it.kind} nonce ${it.nonce} dropped (never mined, no debit)`); continue; }
+    if (it.kind !== 'buy') continue;
+    const ws = wstate(s, it.wallet);
+    const rec = { ts: it.ts, wallet: it.wallet, day: it.day, count: it.count, priceUsd: it.priceUsd, drawing: it.drawing, tx: it.tx, nonce: it.nonce, verified: true, lateSettled: true };
+    if (receipt === 'success') {
+      ws.creditUsdc -= it.count * it.priceUsd;
+      ws.tickets[it.day] = (ws.tickets[it.day] || 0) + it.count;
+      s.spentUsdc += it.count * it.priceUsd;
+      rec.notified = true;
+      emits.push([it.wallet, ...mintedEvent(rec, ws)]);
+      console.log(`${it.wallet} intent settled: tx ${it.tx} mined - ${it.count} ticket(s) booked`);
+    } else {
+      rec.refunded = true;
+      console.log(`${it.wallet} intent settled: tx ${it.tx} reverted - no debit`);
+    }
+    (s.purchases ??= []).push(rec);
+  }
 }
 
 // ── buy: credit ≥ live ticket price → tickets minted to the trader ─────────
@@ -432,6 +542,7 @@ export async function buy(only = null) {
 }
 async function buyInner(only = null) {
   const s = load();
+  syncUsers(s);
   const n = net();
   const chain = cfg.TARGET === 'mainnet' ? base : baseSepolia;
   const pub = createPublicClient({ chain, transport: http(n.rpc) });
@@ -441,13 +552,50 @@ async function buyInner(only = null) {
   const day = new Date().toISOString().slice(0, 10);
   console.log(`drawing #${drawing} · ticket $${priceUsd} · ${cfg.DRY_RUN ? 'DRY RUN — no funds move' : 'LIVE'}`);
   s.lastPriceUsd = priceUsd;
-  await reconcile(s, pub, priceUsd);
 
   let account = null, wallet = null;
   if (!cfg.DRY_RUN) {
     account = privateKeyToAccount(cfg.PRIVATE_KEY);
     wallet = createWalletClient({ account, chain, transport: http(n.rpc) });
+  } else if (cfg.PRIVATE_KEY) {
+    try { account = privateKeyToAccount(cfg.PRIVATE_KEY); } catch { /* dry run without a usable key */ }
   }
+  const emits = [];
+  const accountNonce = await latestNonce(pub, account?.address);
+  await reconcileIntents(s, pub, accountNonce, emits);
+  await reconcile(s, pub, priceUsd, accountNonce, emits);
+  save(s);
+  await flush(emits);
+
+  // fee: 2x the base fee up to the hard ceiling; a spike above the alert line is
+  // reported once an hour, above the ceiling buys wait (never a silent "skipped")
+  let maxFee = cfg.MAX_FEE_WEI < cfg.MAX_FEE_CEILING_WEI ? cfg.MAX_FEE_WEI : cfg.MAX_FEE_CEILING_WEI;
+  let feeOk = true;
+  try {
+    const blk = await pub.getBlock();
+    const baseFee = blk?.baseFeePerGas ?? 0n;
+    maxFee = feeCapFor(baseFee, cfg.MAX_FEE_CEILING_WEI, cfg.PRIORITY_FEE_WEI);
+    if (feeSpike(baseFee, cfg.MAX_FEE_WEI)) await alert(s, 'fee_spike', { baseFeeGwei: formatUnits(baseFee, 9), alertGwei: formatUnits(cfg.MAX_FEE_WEI, 9), ceilingGwei: formatUnits(cfg.MAX_FEE_CEILING_WEI, 9) });
+    if (baseFee > cfg.MAX_FEE_CEILING_WEI) { feeOk = false; console.log(`[megapot] base fee ${formatUnits(baseFee, 9)} gwei above ceiling ${formatUnits(cfg.MAX_FEE_CEILING_WEI, 9)} - USDC buys wait this cycle`); }
+  } catch (e) { console.log(`[megapot] base fee unreadable (${e.message}) - using ${formatUnits(maxFee, 9)} gwei cap`); }
+
+  // pool wallet funds: one ticket of USDC and three buys' worth of gas, or no USDC buys
+  let fundsOk = true;
+  if (!cfg.DRY_RUN) {
+    try {
+      const [usdc, eth] = await Promise.all([
+        pub.readContract({ address: n.usdc, abi: erc20Abi, functionName: 'balanceOf', args: [account.address] }),
+        pub.getBalance({ address: account.address }),
+      ]);
+      const lf = lowFunds({ usdc, eth, priceUnits: price, maxFeeWei: cfg.MAX_FEE_WEI });
+      if (lf.low) {
+        fundsOk = false;
+        const pendingCreditUsd = +Object.values(s.wallets).reduce((a, x) => a + Math.max(0, Number(x.creditUsdc || 0)), 0).toFixed(2);
+        await alert(s, 'low_funds', { usdc: formatUnits(usdc, 6), eth: formatEther(eth), pendingCreditUsd, ethReserve: formatEther(lf.reserve) });
+      }
+    } catch (e) { console.log(`[megapot] balance check failed (${e.message}) - buys continue`); }
+  }
+  save(s);
 
   const buyTargets = only ? eligibleWallets().filter((x) => only.has(x)) : eligibleWallets();
   const reverted = [];
@@ -473,7 +621,9 @@ async function buyInner(only = null) {
       if (conv > 0) {
         ws.creditUsdc += conv * priceUsd;
         s.ftMintUsed = (s.ftMintUsed || 0) + conv;
-        ws.firstTradeBonus = { tickets: conv, priceUsd, grantedMs: Date.now() };
+        // a pack split across days by the gate accumulates - the record is the whole pack
+        const prev = ws.firstTradeBonus || { tickets: 0 };
+        ws.firstTradeBonus = { tickets: (prev.tickets || 0) + conv, priceUsd, grantedMs: Date.now(), firstGrantedMs: prev.firstGrantedMs || prev.grantedMs || Date.now() };
         ws.bonusTicketsPending -= conv;
         console.log(`${w} first-trade bonus credited: ${conv} ticket(s) (day gate ${s.ftMintUsed}/${ftCap || '-'})`);
       }
@@ -481,10 +631,11 @@ async function buyInner(only = null) {
         console.log(`${w} first-trade bonus DEFERRED: ${ws.bonusTicketsPending} ticket(s) wait for tomorrow (day gate full)`);
       }
     }
+    if (walletOnHold(s, w)) { console.log(`${w} buy on hold: an earlier buy intent is unsettled`); continue; }
     const affordable = Math.floor(ws.creditUsdc / priceUsd);
     const dayCount = ws.tickets[day] || 0;
-    const week = Object.entries(ws.tickets).filter(([d]) => (Date.now() - new Date(d).getTime()) < 7*86400000).reduce((a, [,n]) => a + n, 0);
-    const capLeft = Math.max(0, Math.min(cfg.MAX_TICKETS_PER_WALLET_PER_DAY - dayCount, cfg.MAX_TICKETS_PER_WALLET_PER_WEEK - week));
+    // 5/day + 15/week are per USER: every linked wallet's tickets count (users.js)
+    const capLeft = userCapLeft(s, w, day, { perDay: cfg.MAX_TICKETS_PER_WALLET_PER_DAY, perWeek: cfg.MAX_TICKETS_PER_WALLET_PER_WEEK });
     const budgetLeft = Math.max(0, Math.floor((cfg.GLOBAL_BUDGET_USDC - s.spentUsdc) / priceUsd));
     const count = Math.min(affordable, capLeft, budgetLeft, 10); // buyer contract caps 10/call
     if (count < 1) { console.log(`${w} credit $${ws.creditUsdc.toFixed(4)} → 0 tickets (affordable ${affordable}, cap ${capLeft}, budget ${budgetLeft})`); continue; }
@@ -493,6 +644,8 @@ async function buyInner(only = null) {
       console.log(`${w} WOULD buy ${count} ticket(s) → recipient ${w}, referrer ${cfg.TREASURY || '(unset)'}`);
       continue;
     }
+    if (!fundsOk) { console.log(`${w} buy held: pool wallet low on funds (${count} ticket(s) wait)`); continue; }
+    if (!feeOk) { console.log(`${w} buy held: base fee above ceiling (${count} ticket(s) wait)`); continue; }
     const cost = price * BigInt(count);
     // grants/credits above are committed before any wire call
     save(s);
@@ -507,12 +660,12 @@ async function buyInner(only = null) {
       // explicit gas: the reverted approvals (nonce 10/17 on 2026-09-02) ran out of gas
       // at ~36k because the estimate came from a node that still saw the OLD non-zero
       // allowance (cheap SSTORE) while execution wrote zero -> non-zero (20k more).
-      const h1 = await wallet.writeContract({ address: n.usdc, abi: erc20Abi, functionName: 'approve', args: [n.randomBuyer, approveFor], gas: 120_000n });
+      const h1 = await wallet.writeContract({ address: n.usdc, abi: erc20Abi, functionName: 'approve', args: [n.randomBuyer, approveFor], gas: 120_000n, maxFeePerGas: maxFee, maxPriorityFeePerGas: cfg.PRIORITY_FEE_WEI });
       await pub.waitForTransactionReceipt({ hash: h1 });
       // the receipt is not the state: re-read until the node we buy through sees it
       for (let i = 0; i < 6 && allowance < cost; i++) {
         allowance = await pub.readContract({ address: n.usdc, abi: erc20Abi, functionName: 'allowance', args: [account.address, n.randomBuyer] });
-        if (allowance < cost) await new Promise((r) => setTimeout(r, 1500));
+        if (allowance < cost) await sleep(1500);
       }
       if (allowance < cost) { console.log(`${w} buy deferred: allowance ${allowance} still below cost ${cost} after approval - next cycle`); continue; }
       console.log(`standing allowance set: ${approveFor} (tx ${h1})`);
@@ -526,29 +679,46 @@ async function buyInner(only = null) {
       console.log(`${w} buy would revert - skipped this cycle: ${(e.shortMessage || e.message || '').split('\n')[0]}`);
       continue;
     }
+    // SEND-THEN-PERSIST, inverted: pin the nonce, sign locally so the hash is known,
+    // write the INTENT (wallet, count, nonce, hash) to the ledger, and only then
+    // broadcast. A lost RPC response or a kill after the send leaves a record that
+    // reconcileIntents() settles by nonce - never a second buy for the same credit.
     // explicit gas: the quick-pick path's cost is variable (entropy + per-ticket
     // loops) and estimation both underestimates it (observed 5.42M used of a
     // 5.5M limit -> on-chain OOG revert) and races fresh approvals on laggy
     // RPCs. A generous fixed limit sidesteps both; unused gas is refunded.
-    const h2 = await wallet.writeContract({
-      address: n.randomBuyer, abi: buyerAbi, functionName: 'buyTickets',
-      args: buyArgs,
+    const nonce = await pub.getTransactionCount({ address: account.address, blockTag: 'pending' });
+    const signed = await signPinned(account, chain.id, {
+      to: n.randomBuyer, abi: buyerAbi, functionName: 'buyTickets', args: buyArgs,
       gas: 6_500_000n,                  // ~5.4M real usage + 20% headroom
-      maxFeePerGas: cfg.MAX_FEE_WEI,    // default 0.018 gwei cap (Base ~0.006); MAX_FEE_GWEI env raises it
-      maxPriorityFeePerGas: 500_000n,   // 0.0005 gwei tip
-      // upfront reserve = gas*maxFee = 0.000117 ETH; keep the pool wallet's
-      // native balance above that or the node rejects the send pre-hash.
+      maxFeePerGas: maxFee,             // min(2 x base fee, MAX_FEE_GWEI_CEILING)
+      maxPriorityFeePerGas: cfg.PRIORITY_FEE_WEI,
+      nonce,
     });
+    const intent = { kind: 'buy', wallet: w, count, nonce, priceUsd, day, ts: Date.now(), drawing: drawing.toString(), tx: signed.hash };
+    (s.intents ??= []).push(intent);
+    save(s);
+    let h2;
+    try {
+      h2 = await pub.sendRawTransaction({ serializedTransaction: signed.serialized });
+    } catch (e) {
+      // maybe broadcast, maybe not: the intent stays and the wallet is on hold until
+      // reconcileIntents() sees the nonce consumed (book it) or 30 min pass (drop it)
+      console.log(`${w} buy send failed (intent kept, nonce ${nonce}, tx ${signed.hash}): ${(e.shortMessage || e.message || '').split('\n')[0]}`);
+      continue;
+    }
     // the tx hash is on disk BEFORE we wait for the receipt: a crash or RPC
     // timeout here must never lead to a second buy for the same credit.
     // reconcile() settles the receipt (success -> verified, reverted ->
     // refund) on later cycles; until then the credit stays debited.
+    s.intents = s.intents.filter((x) => x !== intent);
     ws.creditUsdc -= count * priceUsd;
     ws.tickets[day] = dayCount + count;
     s.spentUsdc += count * priceUsd;
-    const rec = { ts: Date.now(), wallet: w, day, count, priceUsd, drawing: drawing.toString(), tx: h2, verified: false };
+    const rec = { ts: Date.now(), wallet: w, day, count, priceUsd, drawing: drawing.toString(), tx: h2, nonce, verified: false };
     (s.purchases ??= []).push(rec);
     save(s);
+    console.log(`${w} buy PENDING (tx ${h2}, nonce ${nonce}) - ${count} ticket(s)`);
     const rc = await pub.waitForTransactionReceipt({ hash: h2 });
     if (rc.status !== 'success') {
       // mined but REVERTED: refund exactly what was debited (tx 0x605689d2 once ate a day cap)
@@ -559,7 +729,7 @@ async function buyInner(only = null) {
       if (!isRetry) reverted.push(w);
       continue;
     }
-    rec.verified = true;
+    rec.verified = true; rec.notified = true;
     save(s);
     console.log(`${w} bought ${count} ticket(s) → tx ${h2}`);
     await track(w, 'megapot_tickets_minted', { count, txHash: h2, drawing: drawing.toString(), priceUsd,
@@ -574,10 +744,11 @@ async function buyInner(only = null) {
     // one retry after a short pause: sequential purchases in one pass have reverted
     // on-chain at ~76k gas (allowance/entropy timing) and succeeded next attempt
     console.log(`retrying ${reverted.length} reverted buy(s) once after 4s`);
-    await new Promise((r) => setTimeout(r, 4000));
+    await sleep(4000);
     await runFor(reverted.splice(0), true);
   }
   save(s);
+  beat();
   return s;
 }
 
@@ -586,44 +757,72 @@ async function buyInner(only = null) {
 // recorded a fill since the last fast run, so a validated trade mints within
 // seconds while Hyperliquid is only polled for those wallets.
 const FAST_STATE = `state/fast.${cfg.TARGET}.json`;
+const fastLaneUrl = () => cfg.ACTIVE_URL || (cfg.USERS_URL ? cfg.USERS_URL.replace(/\/api\/admin\/wallets.*$/, '/api/admin/active-wallets') : '');
 export async function fastLane() {
   guard();
-  const url = cfg.ACTIVE_URL || (cfg.USERS_URL ? cfg.USERS_URL.replace(/\/api\/admin\/wallets.*$/, '/api/admin/active-wallets') : '');
+  const url = fastLaneUrl();
   if (!url || url === cfg.USERS_URL) return;
   let since = Date.now() - 10 * 60_000;
   try { since = Number(JSON.parse(fs.readFileSync(FAST_STATE, 'utf8')).since) || since; } catch { /* first run */ }
   const startedAt = Date.now();
   let wallets = [];
   try {
-    const r = await fetch(`${url}${url.includes('?') ? '&' : '?'}since_ms=${since - 30_000}`, { headers: cfg.USERS_TOKEN ? { Authorization: `Bearer ${cfg.USERS_TOKEN}` } : {} });
+    const r = await fetchT(`${url}${url.includes('?') ? '&' : '?'}since_ms=${since - 30_000}`, { headers: authHeaders() });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = await r.json();
     wallets = (Array.isArray(j) ? j : j.wallets || []).map((w) => String(w).toLowerCase());
   } catch (e) { console.log(`[megapot] fast lane: active feed unreachable (${e.message})`); return; }
-  try { fs.writeFileSync(FAST_STATE, JSON.stringify({ since: startedAt })); } catch { /* best-effort */ }
-  if (!wallets.length) return;
+  // the watermark advances only after a successful run: a failed accrue/buy re-covers
+  // the same window next time instead of losing those wallets' fast mints
+  const commit = () => { try { fs.writeFileSync(FAST_STATE, JSON.stringify({ since: startedAt })); } catch { /* best-effort */ } };
+  if (!wallets.length) { commit(); return; }
   await ensureFeed();
   const elig = new Set(eligibleWallets());
   const only = new Set(wallets.filter((w) => elig.has(w)));
-  if (!only.size) return;
+  if (!only.size) { commit(); return; }
   console.log(`[megapot] fast lane: ${only.size} active wallet(s)`);
   await accrue(only);
   await buy(only);
+  commit();
 }
 
+// aggregates only - the wallet map never goes to the container log (it is the ledger)
 export function status() {
   const s = load();
   const mode = !cfg.ACTIVE ? 'INACTIVE' : cfg.WHITELIST.length ? 'PRE-PRODUCTION (whitelist)' : 'POST-PRODUCTION (open)';
   // honesty rule for any downstream public surface: publicFlag = active AND NOT whitelist
   const publicFlag = cfg.ACTIVE && !cfg.WHITELIST.length;
-  console.log(JSON.stringify({ mode, publicFlag, target: cfg.TARGET, dryRun: cfg.DRY_RUN, startMs: cfg.START_MS, cohort: cfg.WHITELIST.length || 'open', spentUsdc: s.spentUsdc, wallets: s.wallets }, null, 2));
+  const day = new Date().toISOString().slice(0, 10);
+  const ws = Object.values(s.wallets || {});
+  const sum = (f) => +ws.reduce((a, x) => a + (Number(f(x)) || 0), 0).toFixed(4);
+  console.log(JSON.stringify({
+    mode, publicFlag, target: cfg.TARGET, dryRun: cfg.DRY_RUN, startMs: cfg.START_MS, endMs: cfg.END_MS, cohort: cfg.WHITELIST.length || 'open',
+    wallets: ws.length, users: new Set(Object.values(s.users || {})).size || undefined,
+    creditSumUsd: sum((x) => x.creditUsdc), pendingBonusTickets: sum((x) => (x.bonusTicketsPending || 0) + (x.streakTicketsPending || 0)),
+    ticketsToday: sum((x) => x.tickets?.[day] || 0), ticketsTotal: sum((x) => Object.values(x.tickets || {}).reduce((a, b) => a + b, 0)),
+    spentUsdc: s.spentUsdc, retroUsd: s.retroUsd || 0, retroTicketsUsed: s.retroTicketsUsed || 0,
+    pools: { packs: `${s.firstTradePoolUsed || 0}/${cfg.FIRST_TRADE?.poolTickets ?? '-'}`, boxes: `${s.streakBoxPoolUsed || 0}/${cfg.STREAK_BOX?.poolTickets ?? '-'}`, multiplierUsd: +(s.multiplierBonusUsd || 0).toFixed(2) },
+    intentsPending: (s.intents || []).length, purchasesUnverified: (s.purchases || []).filter((p) => !p.verified).length,
+    outboxPending: (s.outbox || []).length, accrueSkipStreak: s.accrueSkipStreak || 0,
+  }, null, 2));
 }
 
+let _bannered = false;
+function banner() {
+  if (_bannered) return;
+  _bannered = true;
+  const iso = (ms) => new Date(ms).toISOString();
+  console.log(`[megapot] window ${iso(cfg.START_MS)}..${cfg.END_MS ? iso(cfg.END_MS) : 'open'} (source ${process.env.START_MS ? 'env' : 'sheet'}|${process.env.END_MS ? 'env' : 'sheet'})`);
+  const fl = fastLaneUrl();
+  console.log(`[megapot] fast lane ${fl && fl !== cfg.USERS_URL ? fl : 'disabled'}`);
+  if (!cfg.SPOT_FILLS_URL) console.log('[megapot] spot accrual OFF (no SPOT_FILLS_URL)');
+}
 function guard() {
   if (!cfg.ACTIVE) throw new Error('MEGAPOT_ACTIVE != 1 - campaign is off. To pause a whitelist test, set ACTIVE=0; never clear the whitelist (empty = open to ALL).');
   if (!cfg.START_MS) throw new Error('START_MS is required - set the campaign start before running (historical fills must never credit).');
   if (!cfg.DRY_RUN && !cfg.PRIVATE_KEY) throw new Error('LIVE mode needs PRIVATE_KEY (the capped pool wallet).');
   if (!cfg.DRY_RUN && cfg.TARGET === 'mainnet' && !cfg.TREASURY) throw new Error('LIVE mainnet needs TREASURY set.');
+  banner();
 }
 
 
@@ -632,15 +831,22 @@ function guard() {
 // with claimed=false, 'megapot_win_claimed' when the claim flips true. Powers
 // the "you won - claim it" reminder workflows. Runs only when Customer.io is
 // configured; the venue API is public and the sweep never touches the wire.
+// Bounded: 8 wallets in flight, 4 minutes wall clock, under the ledger lock.
+const SWEEP_CONCURRENCY = 8;
+const SWEEP_BUDGET_MS = 4 * 60_000;
 export async function winSweep() {
   if (!commsEnabled()) return;
   guard();
   await ensureFeed();
+  const release = acquireLock(STATE);
+  try { await winSweepInner(); } finally { release(); }
+}
+async function winSweepInner() {
   const s = load();
   // the active round once per sweep - "tickets in tonight's draw" needs it
   let currentRound = null, poolUsd = null;
   try {
-    const r = await fetch('https://api.megapot.io/v1/rounds/active', { signal: AbortSignal.timeout(8000) });
+    const r = await fetchT('https://api.megapot.io/v1/rounds/active');
     const j = await r.json();
     if (j?.id != null) currentRound = String(j.id);
     if (j?.prize_pool?.amount != null) poolUsd = Number(j.prize_pool.amount) / 10 ** Number(j.prize_pool.decimals ?? 6);
@@ -648,14 +854,14 @@ export async function winSweep() {
   // tickets the pool wallet minted today across all users - the "23 tickets minted today" line
   const todayKey = new Date().toISOString().slice(0, 10);
   const mintedToday = (s.purchases || []).filter((p) => p.day === todayKey && !p.refunded).reduce((a, p) => a + p.count, 0);
-  for (const w of eligibleWallets()) {
+  const one = async (w) => {
     const ws = wstate(s, w);
     let rows = [];
     try {
-      const r = await fetch(`https://api.megapot.io/v1/wallets/${w}/tickets`, { signal: AbortSignal.timeout(8000) });
+      const r = await fetchT(`https://api.megapot.io/v1/wallets/${w}/tickets`);
       const j = await r.json();
       rows = Array.isArray(j?.data) ? j.data : [];
-    } catch { continue; }                       // venue hiccup: next cycle retries
+    } catch { return; }                         // venue hiccup: next cycle retries
     // TICKET LIFECYCLE: daily status event + profile attributes (once a day,
     // and again the moment the draw count or claimable money changes)
     const st = dailyStatus({ ws, rows, currentRound, priceUsd: s.lastPriceUsd || 1, startMs: cfg.START_MS, poolUsd, mintedToday });
@@ -678,6 +884,8 @@ export async function winSweep() {
         await track(w, 'megapot_win_claimed', { usd: Number(usd.toFixed(2)), round: String(t.round_id ?? ''), ticketId: id });
       }
     }
-  }
+  };
+  const { done, skipped } = await mapLimit(eligibleWallets(), SWEEP_CONCURRENCY, one, { budgetMs: SWEEP_BUDGET_MS });
+  if (skipped > 0) console.log(`[megapot] win sweep: ${done} wallet(s) swept, ${skipped} skipped (time budget ${SWEEP_BUDGET_MS / 1000}s)`);
   save(s);
 }

@@ -1,5 +1,6 @@
-import { accrue, buy, status, winSweep, load, save, fastLane } from './engine.js';
+import { accrue, buy, status, winSweep, load, save, fastLane, STATE } from './engine.js';
 import { resetWallets } from './reset.js';
+import { acquireLock } from './ledger.js';
 
 const cmd = process.argv[2];
 if (cmd === 'accrue') await accrue();
@@ -11,8 +12,11 @@ else if (cmd === 'reset') {
   // node src/run.js reset 0xabc,0xdef  - team-test reset (see reset.js)
   const list = String(process.argv[3] || '').split(/[,\s]+/).filter(Boolean);
   if (!list.length) { console.log('usage: reset <wallet,wallet,...>'); process.exit(1); }
-  const s = load(); const r = resetWallets(s, list); save(s);
-  console.log(JSON.stringify(r));
+  // under the ledger lock: a reset racing a buy cycle would be overwritten by that cycle's
+  // save. A busy lock throws - the reset workflow retries on it.
+  const release = acquireLock(STATE);
+  try { const s = load(); const r = resetWallets(s, list); save(s); console.log(JSON.stringify(r)); }
+  finally { release(); }
 }
 else if (cmd === 'status') status();
 else console.log('usage: node src/run.js accrue|buy|winsweep|cycle|status|reset <wallets>');
