@@ -8,7 +8,7 @@
     "$tierSinceMs": "multiplier tiers count Hence AI basket volume from the ORIGINAL season start (2026-08-24 11:59 UTC) so pre-launch baskets keep their tier; startMs still governs which fills earn credit. Hub mirrors it.",
     "endMs": 1789596000000,
     "network": "mainnet",
-    "$note": "Season 1 window per the official rules doc: Aug 24 2026 11:59 UTC through Sep 9 2026 00:00 UTC (15 days). start/end are hard bounds - fills outside the window never credit. Deploy dispatch start_ms must match (env overrides this sheet)."
+    "$note": "Season 1 LIVE window: Sep 2 2026 20:00 UTC through Sep 16 2026 22:00 UTC (14 days). start/end are hard bounds - fills outside the window never credit. Deploy dispatch start_ms/end_ms must match (env overrides this sheet)."
   },
   "eligibility": {
     "products": [
@@ -96,60 +96,65 @@
     ]
   },
   "terms": {
-    "title": "MegaHence Rewards - Season 1 rules",
+    "title": "MegaHence Rewards \u00b7 Season 1 rules",
     "steps": [
-      "Season 1 runs from August 24, 2026 (11:59 UTC) to September 9, 2026 (00:00 UTC).",
-      "Create your Hence account and link a verified email.",
-      "Place your first qualifying trade of $250 or more - or reach $250 of combined volume - to open your activation pack: 1-5 free tickets, drawn at random from the 200-ticket season pool.",
-      "Keep trading: 0.04% (4.0bps) of your qualifying volume - every product on Hence, maker or taker - becomes reward credit. There is no limit on tickets earned this way.",
-      "Streak bonus: trade on 3 days in a week with $1,000 cumulative volume for +1 ticket; 5 days and $5,000 for +1 more.",
-      "Run thesis baskets to climb multiplier tiers - up to 5x, cutting the volume needed per ticket in half.",
-      "Tickets mint straight to YOUR wallet. Megapot draws daily - match numbers to win tiered prizes."
+      "Season 1 runs from September 2, 2026 (20:00 UTC) to September 16, 2026 (22:00 UTC). Trades outside the window do not count.",
+      "Sign in to Hence with your wallet. Linking an email is optional, but it is where draw results and win alerts go.",
+      "Your first trade of $100 or more (one trade, or $100 combined) opens your activation pack: 1 to 5 free tickets drawn from the 200-ticket season pool. Scratch to reveal.",
+      "Every trade after that earns credit: 0.04% of your qualifying volume on any Hence market, maker or taker. $1 of credit = 1 ticket. No limit.",
+      "Trade $250 or more in a day and you open that day's surprise box. Day 2 hits 60% of the time; later boxes hit less often but hold more, up to 8 tickets on day 14.",
+      "Thesis-basket volume unlocks 2x to 5x tiers: +25% to +100% extra credit on everything you trade. Tiers switch on when basket tracking goes live.",
+      "Tickets mint to your own wallet within about 5 minutes of crossing $1 of credit. Megapot draws every day. Match numbers to win."
     ],
     "actions": [
       {
-        "action": "Sign up + verified email + first trade >= $100",
-        "reward": "1-5 ticket pack, drawn at random (200-ticket season pool)"
+        "action": "First trade of $100+",
+        "reward": "Activation pack: 1 to 5 tickets (200-ticket pool, first come first served)"
       },
       {
-        "action": "Qualifying volume (maker or taker, any product)",
-        "reward": "0.04% rolls into ticket credit - unlimited"
+        "action": "Any qualifying volume, any market",
+        "reward": "0.04% becomes ticket credit. Uncapped."
       },
       {
-        "action": "Daily streak box - every day you trade",
-        "reward": "a surprise box: day 2 pays out 60% of the time (+1 ticket); later boxes hit less often but hold 2-8 tickets"
+        "action": "Trade $250+ in a day",
+        "reward": "Surprise box: day 2 pays 60% of the time (+1). Days 5 to 14 pay less often but 2 to 8 tickets."
       },
       {
-        "action": "Trade 10+ days of the campaign",
-        "reward": "the big boxes: 4, 5, 6 and 8-ticket drops on days 11-14"
+        "action": "Trade on 10+ days",
+        "reward": "The big boxes: 4, 5, 6 and 8 tickets on days 11 to 14"
       },
       {
-        "action": "Thesis basket volume ($1,000+)",
-        "reward": "tiers 2x-5x: mint on 90% down to 50% of the volume"
+        "action": "Thesis-basket volume of $1,000+",
+        "reward": "2x to 5x tiers: +25% to +100% extra credit"
       },
       {
         "action": "Daily check-in",
-        "reward": "unlocks today\u2019s card"
+        "reward": "Opens today's card"
       }
     ],
-    "caps": "Per wallet, up to 5 tickets mint per day and 15 per rolling week; anything earned beyond the caps queues automatically and mints at the daily pace - nothing earned is lost. Activation packs mint at most 30 tickets per UTC day across all users and streak boxes at most 30 per UTC day (both reset at 00:00 UTC; later grants mint the next day automatically). Season pools: 200 activation-pack tickets, 420 streak-box tickets, 200 multiplier tickets; the trading-fee rebate itself is uncapped.",
+    "caps": [
+      "Per wallet: up to 5 tickets mint per day and 15 per rolling week. Anything above that queues and mints at the same pace. Nothing earned is lost.",
+      "Across all users: at most 30 activation-pack tickets and 30 surprise-box tickets mint per UTC day. Later grants mint the next day.",
+      "Season pools: 200 activation-pack tickets, 420 surprise-box tickets, 200 multiplier tickets. The trading rebate itself is uncapped.",
+      "All daily caps reset at 00:00 UTC."
+    ],
     "disclosures": [
-      "Tickets are entries in Megapot\u2019s daily draw. Winning is chance-based; no prize is guaranteed. Prizes, odds, draw mechanics and claims are operated by Megapot under Megapot\u2019s terms.",
+      "Tickets are entries in Megapot's daily draw. Winning is chance-based and no prize is guaranteed. Prizes, odds, draw mechanics and claims are operated by Megapot under Megapot's terms.",
       "Tickets mint non-custodially to your own wallet on Base. Hence never holds your tickets or winnings.",
-      "Reward credit has no cash value and converts only to tickets at Megapot\u2019s live ticket price (about $1) at mint time.",
-      "Activation pack sizes are drawn at random from a fixed season pool of 200 tickets across 150 packs: 1 ticket (76.0%), 2 (17.3%), 3 (4.7%), 4 (1.3%), 5 (0.7%). Odds shift slightly as the pool depletes; every qualifying activation receives at least 1 ticket while the pool lasts.",
+      "Reward credit has no cash value and converts only to tickets at Megapot's live ticket price (about $1) at mint time.",
+      "Activation packs are drawn without replacement from 150 pack slots totalling 200 tickets: 1 ticket (76.0%), 2 (17.3%), 3 (4.7%), 4 (1.3%), 5 (0.7%). Odds drift as slots fill. Every qualifying activation gets at least 1 ticket while the pool lasts.",
+      "Surprise-box odds by trade day: day 1 15%, day 2 60%, day 3 45%, day 4 35%, then 30% falling to 12% by day 14, with box sizes rising from 1 to 8 tickets. A trade day counts once $250 of qualifying volume is reached.",
       "Zero-fee promotional pairs are excluded from earning while their promotion is active.",
-      "A working email is required for the activation pack; draw results and win alerts are sent there. Email quality checks may be added during the season.",
-      "Marketing consent is captured when you link your email and recorded either way - you can decline and still participate fully.",
-      "Multiplier tiers (2x-5x) activate as basket tracking goes live this season; until then the base rate applies.",
-      "Availability subject to eligibility and jurisdiction. Parameters may be retuned between seasons."
+      "Email is optional. Draw results and win alerts go to your linked email. Marketing consent is recorded either way; you can decline and still take part fully.",
+      "Multiplier tiers (2x to 5x) activate when basket tracking goes live this season. Until then the base rate applies, and tier rungs may be retuned.",
+      "Not available where Megapot's terms prohibit participation, including the United States and the United Kingdom. Parameters may be retuned between seasons."
     ],
     "assetTable": {
-      "note": "Volume shown mints ONE ticket at the base 1x tier (0.04% of volume at the $1 live ticket price). Maker or taker - same accrual. Every product on Hence qualifies; higher tiers cut the volume needed by their factor.",
+      "note": "Volume shown mints ONE ticket at the base 1x tier (0.04% of volume at the $1 live ticket price). Maker or taker earn the same. Every product on Hence qualifies. Higher tiers cut the volume needed by their factor.",
       "categories": [
         {
           "key": "hl-perps",
-          "label": "HL perps - all pairs",
+          "label": "HL perps \u00b7 all pairs",
           "symbols": [
             "BTC",
             "ETH",
@@ -161,7 +166,7 @@
         },
         {
           "key": "xyz-equities",
-          "label": "xyz equities - all pairs",
+          "label": "xyz equities \u00b7 all pairs",
           "symbols": [
             "NVDA",
             "TSLA",
