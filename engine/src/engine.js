@@ -17,6 +17,7 @@ import { filterInventory, allocateRetro, grantBody } from './retro.js';
 import { enqueue, enqueueStatus, due, afterAttempt, skipLegs } from './outbox.js';
 import { parseRows, userPackGranted, userCapLeft, userCapRoom, userBoxDates } from './users.js';
 import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak } from './safety.js';
+import { blanketGrantsDue } from './grants.js';
 import { fileBucket, backoffMs } from './ratelimit.js';
 import { classifyPurchase, classifyIntent, walletOnHold } from './reconcile.js';
 import { mapLimit } from './pool.js';
@@ -446,6 +447,12 @@ async function accrueInner(only = null) {
       ws.creditUsdc += Number(g.usd) || 0;
       ws.opsGrants[g.id] = { usd: g.usd, at: Date.now() };
       console.log(`${w} ops grant '${g.id}': +$${Number(g.usd).toFixed(2)} credit`);
+    }
+    // blanket grants: campaign-wide one-time credit (e.g. "+2 to everyone who traded by <date>")
+    for (const g of blanketGrantsDue(ws, cfg.BLANKET_GRANTS, { vol, today: new Date().toISOString().slice(0, 10) })) {
+      ws.creditUsdc += Number(g.usd) || 0;
+      (ws.opsGrants ??= {})[g.id] = { usd: g.usd, at: Date.now(), blanket: true };
+      console.log(`${w} blanket grant '${g.id}': +$${Number(g.usd).toFixed(2)} credit`);
     }
     let credit = hlVol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER + spotCredit;
     // MULTIPLIER KICKER: fills after the wallet reached its tier earn the tier's kicker on
