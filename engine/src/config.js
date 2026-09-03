@@ -8,6 +8,13 @@
 //  - GRANTS_URL          hence backend endpoint that records a retro grant so the hub
 //                        can label it. Default: USERS_URL with /api/admin/wallets ->
 //                        /api/admin/megapot/grants. Bearer USERS_TOKEN.
+//  - STATUS_URL          hence backend endpoint the per-wallet status rows (status.js) go to
+//                        after every buy sweep / fast lane. Default: USERS_URL with
+//                        /api/admin/wallets -> /api/admin/megapot/status. Bearer USERS_TOKEN.
+//                        Blank (whitelist mode without USERS_URL) = no push.
+//  - RPC                 comma-separated JSON-RPC urls tried in order (rpc.js: viem fallback,
+//                        10 s each). Mainnet default: mainnet.base.org, blastapi, 1rpc.io -
+//                        one public node alone answered 'over rate limit' in production.
 //  - MEGAPOT_API         override of the venue API base (default per network).
 //  - POOL_WALLET         DRY_RUN only: pool address to read balances / inventory from
 //                        when no PRIVATE_KEY is set (rehearsals show 'WOULD transfer').
@@ -49,6 +56,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseRpcList, DEFAULT_RPCS } from './rpc.js';
 
 // campaign controller — product parameters live in campaign.json (repo root);
 // env keeps the security gates and secrets. CAMPAIGN_FILE overrides the path.
@@ -113,13 +121,13 @@ export const cfg = {
   TARGET: process.env.TARGET || campaign.campaign.network || 'testnet',
   nets: {
     testnet: {
-      rpc: process.env.RPC || 'https://sepolia.base.org',
+      rpcs: parseRpcList(process.env.RPC, DEFAULT_RPCS.testnet),   // tried in order (rpc.js)
       usdc: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
       jackpot: '0x465dA3c859f193A3807386387bEE941B2A4c3279',
       randomBuyer: '0x53c04e7e5044B28Ea8A4F9c4b26E3Ac1aeb63746',
     },
     mainnet: {
-      rpc: process.env.RPC || 'https://mainnet.base.org',
+      rpcs: parseRpcList(process.env.RPC, DEFAULT_RPCS.mainnet),   // tried in order (rpc.js)
       usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
       jackpot: '0x3bAe643002069dBCbcd62B1A4eb4C4A397d042a2',
       randomBuyer: '0xb9560b43b91dE2c1DaF5dfbb76b2CFcDaFc13aBd',
@@ -162,6 +170,10 @@ export const cfg = {
   RETRO_TRANSFERS: process.env.RETRO_TRANSFERS !== '0',
   POOL_WALLET: (process.env.POOL_WALLET || '').toLowerCase(),
   GRANTS_URL: process.env.GRANTS_URL || (process.env.USERS_URL || '').replace(/\/api\/admin\/wallets.*$/, '/api/admin/megapot/grants'),
+  // per-wallet status push (see header); derived like GRANTS_URL, blank without USERS_URL
+  STATUS_URL: process.env.STATUS_URL || (process.env.USERS_URL || '').replace(/\/api\/admin\/wallets.*$/, '/api/admin/megapot/status'),
+  // the loop cadence run_engine.sh runs at (ENGINE_INTERVAL_S, else the sheet's hub.engineCycleS) - on every status row
+  CYCLE_MS: Number(process.env.ENGINE_INTERVAL_S || campaign.hub?.engineCycleS || 300) * 1000,
   MEGAPOT_API: (process.env.MEGAPOT_API || ((process.env.TARGET || campaign.campaign.network || 'testnet') === 'mainnet' ? 'https://api.megapot.io/v1' : 'https://api-testnet.megapot.io/v1')).replace(/\/$/, ''),
 };
 export const retroEnabled = () => !!(cfg.RETRO_TRANSFERS && cfg.TICKET_NFT);

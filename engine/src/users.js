@@ -36,15 +36,22 @@ export function userPackGranted(s, w) {
   return userWallets(s, w).some((ww) => packOf(s.wallets?.[ww]));
 }
 
+/** one wallet's tickets today and in the rolling 7 days */
+function countTickets(tickets, day, nowMs) {
+  let dayCount = 0, week = 0;
+  for (const [d, n] of Object.entries(tickets || {})) {
+    if (d === day) dayCount += n;
+    if (nowMs - new Date(d).getTime() < 7 * 86400000) week += n;
+  }
+  return { dayCount, week };
+}
+
 /** tickets minted today and in the rolling 7 days across the user's wallets */
 export function userTicketCounts(s, w, day, nowMs = Date.now()) {
   let dayCount = 0, week = 0;
   for (const ww of userWallets(s, w)) {
-    const t = s.wallets?.[ww]?.tickets || {};
-    for (const [d, n] of Object.entries(t)) {
-      if (d === day) dayCount += n;
-      if (nowMs - new Date(d).getTime() < 7 * 86400000) week += n;
-    }
+    const c = countTickets(s.wallets?.[ww]?.tickets, day, nowMs);
+    dayCount += c.dayCount; week += c.week;
   }
   return { dayCount, week };
 }
@@ -53,6 +60,14 @@ export function userTicketCounts(s, w, day, nowMs = Date.now()) {
 export function userCapLeft(s, w, day, caps, nowMs = Date.now()) {
   const { dayCount, week } = userTicketCounts(s, w, day, nowMs);
   return Math.max(0, Math.min(caps.perDay - dayCount, caps.perWeek - week));
+}
+
+/** cap room for the USER and for this wallet alone (may be negative). The status row uses
+ *  it to say which binds: the wallet's own tickets, or a linked wallet's (status.js) */
+export function userCapRoom(s, w, day, caps, nowMs = Date.now()) {
+  const u = userTicketCounts(s, w, day, nowMs);
+  const own = countTickets(s.wallets?.[w]?.tickets, day, nowMs);
+  return { dayLeft: caps.perDay - u.dayCount, weekLeft: caps.perWeek - u.week, ownDayLeft: caps.perDay - own.dayCount, ownWeekLeft: caps.perWeek - own.week };
 }
 
 /** dates any wallet of the user already rolled a streak box for, and the count */

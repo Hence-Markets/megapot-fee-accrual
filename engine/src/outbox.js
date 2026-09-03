@@ -4,6 +4,7 @@
 // entry so one dead endpoint never blocks the rest; a poisoned entry dies after
 // MAX_TRIES with a log line, never by silently vanishing.
 export const MAX_TRIES = 48;                                   // ~ a day at the capped backoff
+export const STATUS_TRIES = 3;                                 // a status snapshot goes stale: replace it, never nurse it
 export const retryDelayMs = (tries) => Math.min(60 * 60_000, 60_000 * 2 ** Math.max(0, tries - 1));
 
 let _seq = 0;
@@ -23,9 +24,16 @@ export function afterAttempt(s, entry, legs, nowMs = Date.now()) {
   const pending = Object.entries(legs || {}).some(([k, v]) => v === false && !entry.done[k]);
   if (!pending) { s.outbox = (s.outbox || []).filter((x) => x !== entry); return 'delivered'; }
   entry.tries = (entry.tries || 0) + 1;
-  if (entry.tries >= MAX_TRIES) { s.outbox = (s.outbox || []).filter((x) => x !== entry); return 'dead'; }
+  if (entry.tries >= (entry.maxTries || MAX_TRIES)) { s.outbox = (s.outbox || []).filter((x) => x !== entry); return 'dead'; }
   entry.nextAt = nowMs + retryDelayMs(entry.tries);
   return 'retry';
 }
 /** legs still owed for this entry (skip the ones already delivered) */
 export const skipLegs = (entry) => ({ ...(entry.done || {}) });
+
+/** the status push coalesces: ONE pending entry, the newest wins (an older snapshot is
+ *  never worth a retry slot), at most STATUS_TRIES attempts */
+export function enqueueStatus(s, body, nowMs = Date.now()) {
+  s.outbox = (s.outbox || []).filter((e) => e.kind !== 'status');
+  return enqueue(s, { kind: 'status', wallet: 'engine', body, maxTries: STATUS_TRIES }, nowMs);
+}

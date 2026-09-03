@@ -7,21 +7,23 @@ import { readLedger, writeLedger, acquireLock, isHenceFill } from './ledger.js';
 import { foldSpotFills } from './spotFills.js';
 import { takeFromDailyGate } from './gates.js';
 import { planApproval } from './allowance.js';
-import { createPublicClient, createWalletClient, http, formatUnits, formatEther, keccak256, toHex } from 'viem';
+import { createPublicClient, createWalletClient, formatUnits, formatEther, keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
 import { parseTierRows, kickerFor } from './tiers.js';
 import { cfg, net, jackpotAbi, buyerAbi, erc20Abi, erc721Abi, retroEnabled } from './config.js';
-import { track, trackLegs, postGrant, commsEnabled } from './comms.js';
+import { track, trackLegs, postGrant, postStatus, commsEnabled } from './comms.js';
 import { filterInventory, allocateRetro, grantBody } from './retro.js';
-import { enqueue, due, afterAttempt, skipLegs } from './outbox.js';
-import { parseRows, userPackGranted, userCapLeft, userBoxDates } from './users.js';
+import { enqueue, enqueueStatus, due, afterAttempt, skipLegs } from './outbox.js';
+import { parseRows, userPackGranted, userCapLeft, userCapRoom, userBoxDates } from './users.js';
 import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak } from './safety.js';
 import { fileBucket, backoffMs } from './ratelimit.js';
 import { classifyPurchase, classifyIntent, walletOnHold } from './reconcile.js';
 import { mapLimit } from './pool.js';
 import { signPinned } from './txsign.js';
 import { needsRewind } from './reset.js';
+import { rpcTransport, watchRateLimits, RPC_TIMEOUT_MS } from './rpc.js';
+import { decideBuy, statusRows, engineDoc } from './status.js';
 
 // every upstream call is bounded: one hung feed must never freeze a cycle
 const FETCH_MS = 12_000;
@@ -141,6 +143,7 @@ async function deliver(e) {
   if (e.kind === 'track') return trackLegs(e.wallet, e.name, e.data, skipLegs(e));
   if (e.kind === 'identify') return { cio: cioEnabled() ? await cioIdentify(e.wallet, e.attrs) : null };
   if (e.kind === 'grant') return { grant: await postGrant(e.body) };
+  if (e.kind === 'status') return { status: await postStatus(e.body) };
   return {};
 }
 const applyThen = (s, then) => {
@@ -173,6 +176,19 @@ async function alert(s, kind, data = {}) {
   return true;
 }
 
+// ── per-wallet status rows -> hub, through the outbox (one pending entry, newest wins) ──
+// Built from the ledger AFTER a buy sweep with the same decideBuy the '0 tickets' log line
+// uses. Skipped silently without a STATUS_URL (whitelist mode has no backend to tell).
+const CAPS = { perDay: cfg.MAX_TICKETS_PER_WALLET_PER_DAY, perWeek: cfg.MAX_TICKETS_PER_WALLET_PER_WEEK };
+const budgetTickets = (s, priceUsd) => Math.max(0, Math.floor((cfg.GLOBAL_BUDGET_USDC - s.spentUsdc) / priceUsd));
+function queueStatus(s, ctx) {
+  if (!cfg.STATUS_URL) return;
+  const nowMs = Date.now();
+  const rows = statusRows(s, { ...ctx, caps: CAPS, cycleMs: cfg.CYCLE_MS, nowMs });
+  enqueueStatus(s, { rows, engine: engineDoc({ cycleMs: cfg.CYCLE_MS, nowMs, paused: !cfg.ACTIVE, target: cfg.TARGET }) }, nowMs);
+  console.log(`[megapot] status: ${rows.length} wallet row(s) queued`);
+}
+
 // ── venue fills (Hyperliquid public info API — venue-authoritative) ────────
 // Token bucket shared with the fast lane (file-backed), backoff on 429.
 const hlBucket = fileBucket(`state/hl.bucket.${cfg.TARGET}.json`, { cap: cfg.HL_RPM });
@@ -181,7 +197,7 @@ async function hlInfo(body) {
     await hlBucket.take();
     const r = await fetchT(cfg.HL_INFO, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (r.status === 429) {
-      if (attempt >= 3) throw new Error('HL info 429 (rate limited after 3 retries)');
+      if (attempt >= 3) { const err = new Error('HL info 429 (rate limited after 3 retries)'); err.rateLimited = true; throw err; }   // accrue counts these per wallet
       await sleep(backoffMs(attempt));
       continue;
     }
@@ -467,6 +483,10 @@ async function accrueInner(only = null) {
         emits.push([w, '$identify', tradeAttrs(dailyStatus({ ws, rows: [], priceUsd, startMs: cfg.START_MS }))]);
       }
     }
+    // accrue WATERMARK: stamped only by a completed pass, so the status row's lastAccrueMs
+    // never claims the venue was read when the call failed
+    ws.lastAccrueMs = Date.now();
+    delete ws.accrueRateLimited;
     // one wallet's work is durable before the next wallet's RPC call can throw
     save(s);
     await flush(s, emits);
@@ -476,6 +496,11 @@ async function accrueInner(only = null) {
     emits.length = 0;
     skipped++;
     console.log(`${w} accrue skipped this cycle: ${e.message}`);
+    // the HL rate limiter: count consecutive misses so a stale lastAccrueMs is explained
+    if (e.rateLimited && s.wallets[w]) {
+      const n = (s.wallets[w].accrueRateLimited = (s.wallets[w].accrueRateLimited || 0) + 1);
+      console.log(`${w} accrue rate-limited by HL (${n} cycle(s) in a row) - lastAccrueMs unchanged`);
+    }
    }
   }
   if (fullSweep) {
@@ -526,7 +551,7 @@ async function reconcile(s, pub, priceUsd, accountNonce, emits) {
     const ws = s.wallets[p.wallet];
     if (verdict === 'success') {
       p.verified = true;
-      if (!p.notified) { p.notified = true; emits.push([p.wallet, ...mintedEvent(p, ws)]); console.log(`${p.wallet} reconcile: tx ${p.tx} confirmed late - ${p.count} ticket(s)`); }
+      if (!p.notified) { p.notified = true; if (ws) ws.lastMintMs = Date.now(); emits.push([p.wallet, ...mintedEvent(p, ws)]); console.log(`${p.wallet} reconcile: tx ${p.tx} confirmed late - ${p.count} ticket(s)`); }
       continue;
     }
     // reverted on-chain, or dropped from the mempool and its nonce gone: refund exactly what was debited
@@ -569,6 +594,7 @@ async function reconcileIntents(s, pub, accountNonce, emits) {
       if (retro) { s.retroUsd = (s.retroUsd || 0) + it.count * it.priceUsd; s.retroTicketsUsed = (s.retroTicketsUsed || 0) + it.count; }
       else s.spentUsdc += it.count * it.priceUsd;
       rec.notified = true;
+      ws.lastMintMs = Date.now();
       emits.push([it.wallet, ...mintedEvent(rec, ws)]);
       if (retro) emits.push([it.wallet, '$grant', grantBody({ wallet: it.wallet, tokenId: it.tokenId, round: it.drawing, tx: it.tx })]);
       console.log(`${it.wallet} intent settled: tx ${it.tx} mined - ${it.count} ${retro ? 'retro ' : ''}ticket(s) booked`);
@@ -586,14 +612,29 @@ export async function buy(only = null) {
   await ensureFeed();
   if (cfg.END_MS && Date.now() > cfg.END_MS + cfg.BUY_GRACE_MS) { console.log('season over + grace: minting closed'); return load(); }
   const release = acquireLock(STATE);
-  try { return await buyInner(only); } finally { release(); }
+  const rateLimited = new Set();                 // RPC urls that answered 'over rate limit' this cycle
+  try { return await buyInner(only, rateLimited); }
+  finally {
+    // reported even when the cycle died on that very read; one line + event per hour
+    try { if (rateLimited.size) await rpcAlert(rateLimited); } finally { release(); }
+  }
 }
-async function buyInner(only = null) {
+// RPC: every url in RPC (config.js) behind one viem fallback, in order, 10 s each. A node
+// that rate-limits us is skipped for the next url; its url lands here, once an hour.
+async function rpcAlert(urls) {
+  const s = load();
+  if (!shouldAlert(s.alerts, alertKey('rpc_rate_limited'))) return;
+  await alert(s, 'rpc_rate_limited', { url: [...urls].join(',') });
+  save(s);
+}
+async function buyInner(only = null, rateLimited = new Set()) {
   const s = load();
   syncUsers(s);
   const n = net();
   const chain = cfg.TARGET === 'mainnet' ? base : baseSepolia;
-  const pub = createPublicClient({ chain, transport: http(n.rpc) });
+  const transport = rpcTransport(n.rpcs);
+  const pub = createPublicClient({ chain, transport });
+  watchRateLimits(pub, (url) => rateLimited.add(url));
   const price = await pub.readContract({ address: n.jackpot, abi: jackpotAbi, functionName: 'ticketPrice' });
   const priceUsd = Number(formatUnits(price, 6));
   const drawing = await pub.readContract({ address: n.jackpot, abi: jackpotAbi, functionName: 'currentDrawingId' });
@@ -604,7 +645,8 @@ async function buyInner(only = null) {
   let account = null, wallet = null;
   if (!cfg.DRY_RUN) {
     account = privateKeyToAccount(cfg.PRIVATE_KEY);
-    wallet = createWalletClient({ account, chain, transport: http(n.rpc) });
+    wallet = createWalletClient({ account, chain, transport });
+    watchRateLimits(wallet, (url) => rateLimited.add(url));
   } else if (cfg.PRIVATE_KEY) {
     try { account = privateKeyToAccount(cfg.PRIVATE_KEY); } catch { /* dry run without a usable key */ }
   } else if (cfg.POOL_WALLET) {
@@ -686,11 +728,10 @@ async function buyInner(only = null) {
       }
     }
     if (walletOnHold(s, w)) { console.log(`${w} buy on hold: an earlier buy intent is unsettled`); continue; }
-    const caps = { perDay: cfg.MAX_TICKETS_PER_WALLET_PER_DAY, perWeek: cfg.MAX_TICKETS_PER_WALLET_PER_WEEK };
     // RETRO FIRST: tickets owed = min(affordable, per-user cap, 10); as many as the pool
     // wallet's inventory covers move by transferFrom, the rest buys with USDC below.
     // Retro tickets count toward the day/week/user caps but never toward spentUsdc.
-    const owed = Math.min(Math.floor(ws.creditUsdc / priceUsd), userCapLeft(s, w, day, caps), 10);
+    const owed = Math.min(Math.floor(ws.creditUsdc / priceUsd), userCapLeft(s, w, day, CAPS), 10);
     if (owed > 0 && inv.tokenIds.length) {
       const { tokenIds } = allocateRetro(owed, inv.tokenIds);
       if (cfg.DRY_RUN) console.log(`${w} WOULD transfer ${tokenIds.length} retro ticket(s) (round ${inv.round}) → ${w}`);
@@ -701,12 +742,11 @@ async function buyInner(only = null) {
         if (held) continue;                       // a transfer send failed: wallet on hold until reconciled
       }
     }
-    const affordable = Math.floor(ws.creditUsdc / priceUsd);
     const dayCount = ws.tickets[day] || 0;
-    // 5/day + 15/week are per USER: every linked wallet's tickets count (users.js)
-    const capLeft = userCapLeft(s, w, day, caps);
-    const budgetLeft = Math.max(0, Math.floor((cfg.GLOBAL_BUDGET_USDC - s.spentUsdc) / priceUsd));
-    const count = Math.min(affordable, capLeft, budgetLeft, 10); // buyer contract caps 10/call
+    const budgetLeft = budgetTickets(s, priceUsd);
+    // 5/day + 15/week are per USER: every linked wallet's tickets count (users.js). The
+    // decision itself is decideBuy (status.js): the hub's status row is the same call
+    const { count, affordable, capLeft } = decideBuy(ws, { ...userCapRoom(s, w, day, CAPS), priceUsd, budgetLeft });
     if (count < 1) { console.log(`${w} credit $${ws.creditUsdc.toFixed(4)} → 0 tickets (affordable ${affordable}, cap ${capLeft}, budget ${budgetLeft})`); continue; }
 
     if (cfg.DRY_RUN) {
@@ -798,7 +838,7 @@ async function buyInner(only = null) {
       if (!isRetry) reverted.push(w);
       continue;
     }
-    rec.verified = true; rec.notified = true;
+    rec.verified = true; rec.notified = true; ws.lastMintMs = Date.now();
     console.log(`${w} bought ${count} ticket(s) → tx ${h2}`);
     emits.push([w, ...mintedEvent(rec, ws)]);
     await flush(s, emits);
@@ -816,6 +856,9 @@ async function buyInner(only = null) {
     await sleep(4000);
     await runFor(reverted.splice(0), true);
   }
+  // STATUS PUSH: the hub's per-wallet "queued / waiting on" is this post-sweep snapshot of
+  // the ledger, never a client-side fee estimate. Rides the outbox with the emits.
+  queueStatus(s, { day, priceUsd, budgetLeft: budgetTickets(s, priceUsd), fundsOk, feeOk, retroAvailable: inv.tokenIds.length });
   await flush(s, emits);
   save(s);
   beat();
@@ -893,7 +936,7 @@ async function transferRetro({ s, ws, w, tokenIds, inv, pub, account, chain, day
       save(s);
       continue;
     }
-    rec.verified = true; rec.notified = true;
+    rec.verified = true; rec.notified = true; ws.lastMintMs = Date.now();
     console.log(`${w} retro ticket #${tokenId} transferred → tx ${hash} (round ${inv.round}, ${s.retroTicketsUsed} retro used)`);
     emits.push([w, ...mintedEvent(rec, ws)]);
     emits.push([w, '$grant', grantBody({ wallet: w, tokenId, round: inv.round, tx: hash })]);
@@ -965,6 +1008,8 @@ function banner() {
   console.log(`[megapot] window ${iso(cfg.START_MS)}..${cfg.END_MS ? iso(cfg.END_MS) : 'open'} (source ${process.env.START_MS ? 'env' : 'sheet'}|${process.env.END_MS ? 'env' : 'sheet'})`);
   const fl = fastLaneUrl();
   console.log(`[megapot] fast lane ${fl && fl !== cfg.USERS_URL ? fl : 'disabled'}`);
+  console.log(`[megapot] rpc ${net().rpcs.join(', ')} (fallback in order, ${RPC_TIMEOUT_MS / 1000}s each)`);
+  console.log(`[megapot] status push ${cfg.STATUS_URL || 'disabled (no STATUS_URL / USERS_URL)'}`);
   if (!cfg.SPOT_FILLS_URL) console.log('[megapot] spot accrual OFF (no SPOT_FILLS_URL)');
 }
 function guard() {
