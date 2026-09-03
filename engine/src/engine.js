@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { rollStreakBox, boxFor } from './streakBox.js';
-import { dailyStatus, attrs, shouldEmit } from './lifecycle.js';
-import { cioIdentify } from './cio.js';
+import { dailyStatus, attrs, shouldEmit, statusKey, tradeAttrs, shouldIdentifyOnTrade, winTransition, winId } from './lifecycle.js';
+import { cioIdentify, cioEnabled } from './cio.js';
 import { readLedger, writeLedger, acquireLock, isHenceFill } from './ledger.js';
 import { foldSpotFills } from './spotFills.js';
 import { takeFromDailyGate } from './gates.js';
@@ -11,8 +11,10 @@ import { createPublicClient, createWalletClient, http, formatUnits, formatEther,
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
 import { parseTierRows, kickerFor } from './tiers.js';
-import { cfg, net, jackpotAbi, buyerAbi, erc20Abi } from './config.js';
-import { track, commsEnabled } from './comms.js';
+import { cfg, net, jackpotAbi, buyerAbi, erc20Abi, erc721Abi, retroEnabled } from './config.js';
+import { track, trackLegs, postGrant, commsEnabled } from './comms.js';
+import { filterInventory, allocateRetro, grantBody } from './retro.js';
+import { enqueue, due, afterAttempt, skipLegs } from './outbox.js';
 import { parseRows, userPackGranted, userCapLeft, userBoxDates } from './users.js';
 import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak } from './safety.js';
 import { fileBucket, backoffMs } from './ratelimit.js';
@@ -119,9 +121,42 @@ export function load() {
 export function save(s) { writeLedger(STATE, s); }
 // comms are emitted AFTER the ledger that records them is on disk - a
 // crash between "WON +3" and save must never send an email the replay
-// then contradicts
-async function flush(emits) {
-  for (const [w, name, data] of emits.splice(0)) await track(w, name, data);
+// then contradicts. Every emit goes through the ledger OUTBOX (outbox.js):
+// queued + saved first, then delivered; a failed leg retries next cycle, so
+// events are at-least-once and never lost to a timeout or a kill.
+// emits rows: [wallet, name, data] or [wallet, name, data, then] where `then`
+// is applied to the ledger once every leg delivered (win markers).
+async function flush(s, emits) {
+  for (const row of emits.splice(0)) {
+    const [w, name, data, then] = row;
+    if (name === '$identify') enqueue(s, { kind: 'identify', wallet: w, attrs: data });
+    else if (name === '$grant') enqueue(s, { kind: 'grant', wallet: w, body: data });
+    else enqueue(s, { kind: 'track', wallet: w, name, data, ...(then ? { then } : {}) });
+  }
+  save(s);
+  await flushOutbox(s);
+  save(s);
+}
+async function deliver(e) {
+  if (e.kind === 'track') return trackLegs(e.wallet, e.name, e.data, skipLegs(e));
+  if (e.kind === 'identify') return { cio: cioEnabled() ? await cioIdentify(e.wallet, e.attrs) : null };
+  if (e.kind === 'grant') return { grant: await postGrant(e.body) };
+  return {};
+}
+const applyThen = (s, then) => {
+  if (then?.win) { const ws = s.wallets?.[then.win.wallet]; if (ws) (ws.cioWins ??= {})[then.win.id] = then.win.state; }
+};
+export async function flushOutbox(s, nowMs = Date.now()) {
+  let delivered = 0, retry = 0, dead = 0;
+  for (const e of due(s, nowMs)) {
+    const legs = await deliver(e);
+    const r = afterAttempt(s, e, legs, nowMs);
+    if (r === 'delivered') { delivered++; applyThen(s, e.then); }
+    else if (r === 'retry') retry++;
+    else { dead++; console.log(`[megapot] outbox: ${e.kind} ${e.name || ''} for ${e.wallet} dead after ${e.tries} tries`); if (e.then?.win) { const ws = s.wallets?.[e.then.win.wallet]; if (ws?.cioWins) delete ws.cioWins[e.then.win.id]; } }
+  }
+  if (retry || dead) console.log(`[megapot] outbox: ${delivered} delivered, ${retry} to retry, ${dead} dead, ${(s.outbox || []).length} queued`);
+  return { delivered, retry, dead };
 }
 const wstate = (s, w) => (s.wallets[w] ??= { creditUsdc: 0, lastFillMs: cfg.START_MS, volumeUsd: 0, tickets: {} });
 
@@ -425,10 +460,16 @@ async function accrueInner(only = null) {
         creditUsd: +ws.creditUsdc.toFixed(4), nextTicketPct: Math.min(100, Math.round((ws.creditUsdc / priceUsd) * 100)),
         campaignTradeDays: Object.keys(ws.boxes || {}).length, dateUtc: new Date().toISOString().slice(0, 10),
       }]);
+      // the profile attributes a trade moves, so same-day sends are not stale: first
+      // trade of the day at once, then hourly
+      if (shouldIdentifyOnTrade(ws.lastIdentifyMs)) {
+        ws.lastIdentifyMs = Date.now();
+        emits.push([w, '$identify', tradeAttrs(dailyStatus({ ws, rows: [], priceUsd, startMs: cfg.START_MS }))]);
+      }
     }
     // one wallet's work is durable before the next wallet's RPC call can throw
     save(s);
-    await flush(emits);
+    await flush(s, emits);
    } catch (e) {
     // one wallet's venue/RPC failure never stalls the others: its checkpoint
     // is untouched, so the next cycle retries it from where it left off
@@ -464,7 +505,8 @@ const latestNonce = async (pub, address) => {
   try { return await pub.getTransactionCount({ address, blockTag: 'latest' }); } catch { return null; }
 };
 const mintedEvent = (p, ws) => ['megapot_tickets_minted', { count: p.count, txHash: p.tx, drawing: String(p.drawing ?? ''), priceUsd: p.priceUsd,
-  todayTotal: ws?.tickets?.[p.day] || p.count, creditLeftUsd: +Number(ws?.creditUsdc || 0).toFixed(4) }];
+  todayTotal: ws?.tickets?.[p.day] || p.count, creditLeftUsd: +Number(ws?.creditUsdc || 0).toFixed(4),
+  ...(p.kind === 'retro' ? { source: 'retro', tokenId: String(p.tokenId) } : {}) }];
 
 // reconcile: every recorded purchase carries its tx hash; verification is the
 // on-chain receipt itself, not an indexer's opinion. A purchase whose receipt
@@ -488,9 +530,10 @@ async function reconcile(s, pub, priceUsd, accountNonce, emits) {
       continue;
     }
     // reverted on-chain, or dropped from the mempool and its nonce gone: refund exactly what was debited
-    console.log(`${p.wallet} reconcile: ${verdict === 'dropped' ? 'dropped (unfound)' : 'tx reverted'} ${p.tx} — refunding ${p.count} ticket(s)`);
+    console.log(`${p.wallet} reconcile: ${verdict === 'dropped' ? 'dropped (unfound)' : 'tx reverted'} ${p.tx} — refunding ${p.count} ticket(s)${p.kind === 'retro' ? ` (retro #${p.tokenId})` : ''}`);
     const price = p.priceUsd ?? priceUsd;
-    s.spentUsdc = Math.max(0, s.spentUsdc - p.count * price);
+    if (p.kind === 'retro') { s.retroUsd = Math.max(0, (s.retroUsd || 0) - p.count * price); s.retroTicketsUsed = Math.max(0, (s.retroTicketsUsed || 0) - p.count); }
+    else s.spentUsdc = Math.max(0, s.spentUsdc - p.count * price);
     if (ws) {
       ws.creditUsdc += p.count * price;
       if (ws.tickets?.[p.day] != null) {
@@ -514,16 +557,20 @@ async function reconcileIntents(s, pub, accountNonce, emits) {
     if (verdict === 'wait') continue;
     s.intents = s.intents.filter((x) => x !== it);
     if (verdict === 'drop') { console.log(`${it.wallet} intent ${it.kind} nonce ${it.nonce} dropped (never mined, no debit)`); continue; }
-    if (it.kind !== 'buy') continue;
+    if (it.kind !== 'buy' && it.kind !== 'transfer') continue;
     const ws = wstate(s, it.wallet);
-    const rec = { ts: it.ts, wallet: it.wallet, day: it.day, count: it.count, priceUsd: it.priceUsd, drawing: it.drawing, tx: it.tx, nonce: it.nonce, verified: true, lateSettled: true };
+    const retro = it.kind === 'transfer';
+    const rec = { ts: it.ts, wallet: it.wallet, day: it.day, count: it.count, priceUsd: it.priceUsd, drawing: it.drawing, tx: it.tx, nonce: it.nonce, verified: true, lateSettled: true,
+      ...(retro ? { kind: 'retro', tokenId: it.tokenId } : {}) };
     if (receipt === 'success') {
       ws.creditUsdc -= it.count * it.priceUsd;
       ws.tickets[it.day] = (ws.tickets[it.day] || 0) + it.count;
-      s.spentUsdc += it.count * it.priceUsd;
+      if (retro) { s.retroUsd = (s.retroUsd || 0) + it.count * it.priceUsd; s.retroTicketsUsed = (s.retroTicketsUsed || 0) + it.count; }
+      else s.spentUsdc += it.count * it.priceUsd;
       rec.notified = true;
       emits.push([it.wallet, ...mintedEvent(rec, ws)]);
-      console.log(`${it.wallet} intent settled: tx ${it.tx} mined - ${it.count} ticket(s) booked`);
+      if (retro) emits.push([it.wallet, '$grant', grantBody({ wallet: it.wallet, tokenId: it.tokenId, round: it.drawing, tx: it.tx })]);
+      console.log(`${it.wallet} intent settled: tx ${it.tx} mined - ${it.count} ${retro ? 'retro ' : ''}ticket(s) booked`);
     } else {
       rec.refunded = true;
       console.log(`${it.wallet} intent settled: tx ${it.tx} reverted - no debit`);
@@ -559,13 +606,14 @@ async function buyInner(only = null) {
     wallet = createWalletClient({ account, chain, transport: http(n.rpc) });
   } else if (cfg.PRIVATE_KEY) {
     try { account = privateKeyToAccount(cfg.PRIVATE_KEY); } catch { /* dry run without a usable key */ }
+  } else if (cfg.POOL_WALLET) {
+    account = { address: cfg.POOL_WALLET };          // rehearsal: read-only view of the pool wallet
   }
   const emits = [];
   const accountNonce = await latestNonce(pub, account?.address);
   await reconcileIntents(s, pub, accountNonce, emits);
   await reconcile(s, pub, priceUsd, accountNonce, emits);
-  save(s);
-  await flush(emits);
+  await flush(s, emits);
 
   // fee: 2x the base fee up to the hard ceiling; a spike above the alert line is
   // reported once an hour, above the ceiling buys wait (never a silent "skipped")
@@ -579,8 +627,9 @@ async function buyInner(only = null) {
     if (baseFee > cfg.MAX_FEE_CEILING_WEI) { feeOk = false; console.log(`[megapot] base fee ${formatUnits(baseFee, 9)} gwei above ceiling ${formatUnits(cfg.MAX_FEE_CEILING_WEI, 9)} - USDC buys wait this cycle`); }
   } catch (e) { console.log(`[megapot] base fee unreadable (${e.message}) - using ${formatUnits(maxFee, 9)} gwei cap`); }
 
-  // pool wallet funds: one ticket of USDC and three buys' worth of gas, or no USDC buys
-  let fundsOk = true;
+  // pool wallet funds: one ticket of USDC and three buys' worth of gas, or no USDC buys;
+  // retro transfers need only the gas
+  let fundsOk = true, gasOk = true;
   if (!cfg.DRY_RUN) {
     try {
       const [usdc, eth] = await Promise.all([
@@ -590,12 +639,16 @@ async function buyInner(only = null) {
       const lf = lowFunds({ usdc, eth, priceUnits: price, maxFeeWei: cfg.MAX_FEE_WEI });
       if (lf.low) {
         fundsOk = false;
+        gasOk = !lf.ethLow;
         const pendingCreditUsd = +Object.values(s.wallets).reduce((a, x) => a + Math.max(0, Number(x.creditUsdc || 0)), 0).toFixed(2);
         await alert(s, 'low_funds', { usdc: formatUnits(usdc, 6), eth: formatEther(eth), pendingCreditUsd, ethReserve: formatEther(lf.reserve) });
       }
     } catch (e) { console.log(`[megapot] balance check failed (${e.message}) - buys continue`); }
   }
   save(s);
+  // RETRO INVENTORY: Megapot's daily tickets already sitting in the pool wallet, for the
+  // ACTIVE round, verified on-chain. Handed out before any USDC moves.
+  const inv = await inventory(pub, account?.address);
 
   const buyTargets = only ? eligibleWallets().filter((x) => only.has(x)) : eligibleWallets();
   const reverted = [];
@@ -632,10 +685,25 @@ async function buyInner(only = null) {
       }
     }
     if (walletOnHold(s, w)) { console.log(`${w} buy on hold: an earlier buy intent is unsettled`); continue; }
+    const caps = { perDay: cfg.MAX_TICKETS_PER_WALLET_PER_DAY, perWeek: cfg.MAX_TICKETS_PER_WALLET_PER_WEEK };
+    // RETRO FIRST: tickets owed = min(affordable, per-user cap, 10); as many as the pool
+    // wallet's inventory covers move by transferFrom, the rest buys with USDC below.
+    // Retro tickets count toward the day/week/user caps but never toward spentUsdc.
+    const owed = Math.min(Math.floor(ws.creditUsdc / priceUsd), userCapLeft(s, w, day, caps), 10);
+    if (owed > 0 && inv.tokenIds.length) {
+      const { tokenIds } = allocateRetro(owed, inv.tokenIds);
+      if (cfg.DRY_RUN) console.log(`${w} WOULD transfer ${tokenIds.length} retro ticket(s) (round ${inv.round}) → ${w}`);
+      else if (!gasOk) console.log(`${w} retro transfer held: pool wallet low on ETH`);
+      else if (!feeOk) console.log(`${w} retro transfer held: base fee above ceiling`);
+      else {
+        const held = await transferRetro({ s, ws, w, tokenIds, inv, pub, account, chain, day, priceUsd, maxFee, emits });
+        if (held) continue;                       // a transfer send failed: wallet on hold until reconciled
+      }
+    }
     const affordable = Math.floor(ws.creditUsdc / priceUsd);
     const dayCount = ws.tickets[day] || 0;
     // 5/day + 15/week are per USER: every linked wallet's tickets count (users.js)
-    const capLeft = userCapLeft(s, w, day, { perDay: cfg.MAX_TICKETS_PER_WALLET_PER_DAY, perWeek: cfg.MAX_TICKETS_PER_WALLET_PER_WEEK });
+    const capLeft = userCapLeft(s, w, day, caps);
     const budgetLeft = Math.max(0, Math.floor((cfg.GLOBAL_BUDGET_USDC - s.spentUsdc) / priceUsd));
     const count = Math.min(affordable, capLeft, budgetLeft, 10); // buyer contract caps 10/call
     if (count < 1) { console.log(`${w} credit $${ws.creditUsdc.toFixed(4)} → 0 tickets (affordable ${affordable}, cap ${capLeft}, budget ${budgetLeft})`); continue; }
@@ -730,16 +798,16 @@ async function buyInner(only = null) {
       continue;
     }
     rec.verified = true; rec.notified = true;
-    save(s);
     console.log(`${w} bought ${count} ticket(s) → tx ${h2}`);
-    await track(w, 'megapot_tickets_minted', { count, txHash: h2, drawing: drawing.toString(), priceUsd,
-      todayTotal: dayCount + count, creditLeftUsd: +ws.creditUsdc.toFixed(4) });
+    emits.push([w, ...mintedEvent(rec, ws)]);
+    await flush(s, emits);
    } catch (e) {
     console.log(`${w} buy skipped this cycle: ${e.message}`);
    }
   }
   };
   await runFor(buyTargets, false);
+  await flush(s, emits);
   if (reverted.length) {
     // one retry after a short pause: sequential purchases in one pass have reverted
     // on-chain at ~76k gas (allowance/entropy timing) and succeeded next attempt
@@ -747,9 +815,98 @@ async function buyInner(only = null) {
     await sleep(4000);
     await runFor(reverted.splice(0), true);
   }
+  await flush(s, emits);
   save(s);
   beat();
   return s;
+}
+
+// ── retro inventory + transfer ────────────────────────────────────────────────
+// Once per cycle: the venue API lists the pool wallet's tickets; keep the ACTIVE
+// round, unclaimed, no winnings; confirm ownerOf == pool on-chain for each. API or
+// chain down = no retro this cycle (the USDC path continues), never a guess.
+async function inventory(pub, pool) {
+  const none = { round: null, tokenIds: [] };
+  if (!retroEnabled() || !pool) return none;
+  try {
+    const active = await (await fetchT(`${cfg.MEGAPOT_API}/rounds/active`)).json();
+    const round = active?.id != null ? String(active.id) : null;
+    if (!round) throw new Error('no active round');
+    const rows = [];
+    let cursor = null;
+    for (let page = 0; page < 5; page++) {
+      const u = `${cfg.MEGAPOT_API}/wallets/${pool}/tickets${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const j = await (await fetchT(u)).json();
+      if (!Array.isArray(j?.data)) throw new Error('tickets shape');
+      rows.push(...j.data);
+      if (!j.has_more || !j.next_cursor || j.next_cursor === cursor) break;
+      cursor = j.next_cursor;
+    }
+    const candidates = filterInventory(rows, { activeRound: round, pool });
+    if (!candidates.length) { console.log(`[megapot] retro inventory: none held for round ${round} (${rows.length} rows)`); return { round, tokenIds: [] }; }
+    // one eth_call for every ownerOf (public RPCs rate-limit per-token reads); a
+    // per-token failure (burned / reverted) drops that token, a failed multicall throws
+    const owners = await pub.multicall({ allowFailure: true, contracts: candidates.map((id) => ({ address: cfg.TICKET_NFT, abi: erc721Abi, functionName: 'ownerOf', args: [BigInt(id)] })) });
+    const tokenIds = candidates.filter((id, i) => owners[i]?.status === 'success' && String(owners[i].result).toLowerCase() === String(pool).toLowerCase());
+    console.log(`[megapot] retro inventory: ${tokenIds.length} ticket(s) held for round ${round} (${rows.length} rows, ${candidates.length} candidates)`);
+    return { round, tokenIds };
+  } catch (e) {
+    console.log(`[megapot] retro inventory unavailable (${e.message}) - USDC path only this cycle`);
+    return none;
+  }
+}
+// transferFrom(pool, user, tokenId) per ticket, intent-first like a buy. Success debits
+// one ticket of credit, counts toward the day cap, books a kind:'retro' purchase and
+// reports the grant; a revert drops the token from inventory with no debit.
+// Returns true when the wallet must be left on hold (a send failed with the intent kept).
+async function transferRetro({ s, ws, w, tokenIds, inv, pub, account, chain, day, priceUsd, maxFee, emits }) {
+  for (const tokenId of tokenIds) {
+    let nonce, signed;
+    try {
+      nonce = await pub.getTransactionCount({ address: account.address, blockTag: 'pending' });
+      signed = await signPinned(account, chain.id, {
+        to: cfg.TICKET_NFT, abi: erc721Abi, functionName: 'transferFrom', args: [account.address, w, BigInt(tokenId)],
+        gas: 200_000n, maxFeePerGas: maxFee, maxPriorityFeePerGas: cfg.PRIORITY_FEE_WEI, nonce,
+      });
+    } catch (e) { console.log(`${w} retro #${tokenId} skipped (prepare failed): ${e.message}`); return false; }
+    const intent = { kind: 'transfer', wallet: w, count: 1, tokenId, nonce, priceUsd, day, ts: Date.now(), drawing: inv.round, tx: signed.hash };
+    (s.intents ??= []).push(intent);
+    save(s);
+    let hash;
+    try { hash = await pub.sendRawTransaction({ serializedTransaction: signed.serialized }); }
+    catch (e) {
+      console.log(`${w} retro #${tokenId} send failed (intent kept, nonce ${nonce}, tx ${signed.hash}): ${(e.shortMessage || e.message || '').split('\n')[0]}`);
+      inv.tokenIds = inv.tokenIds.filter((x) => x !== tokenId);
+      return true;
+    }
+    s.intents = s.intents.filter((x) => x !== intent);
+    inv.tokenIds = inv.tokenIds.filter((x) => x !== tokenId);
+    const dayCount = ws.tickets[day] || 0;
+    ws.creditUsdc -= priceUsd;
+    ws.tickets[day] = dayCount + 1;
+    s.retroUsd = (s.retroUsd || 0) + priceUsd;
+    s.retroTicketsUsed = (s.retroTicketsUsed || 0) + 1;
+    const rec = { ts: Date.now(), wallet: w, day, count: 1, priceUsd, drawing: inv.round, tx: hash, nonce, verified: false, kind: 'retro', tokenId };
+    (s.purchases ??= []).push(rec);
+    save(s);
+    console.log(`${w} retro transfer PENDING (tx ${hash}, nonce ${nonce}) - ticket #${tokenId}`);
+    let rc;
+    try { rc = await pub.waitForTransactionReceipt({ hash, timeout: 120_000 }); }
+    catch (e) { console.log(`${w} retro #${tokenId} receipt not yet seen (${e.message}) - reconcile settles it`); return false; }
+    if (rc.status !== 'success') {
+      console.log(`${w} retro transfer REVERTED (tx ${hash}) - ticket #${tokenId} dropped from inventory, no debit`);
+      ws.creditUsdc += priceUsd; ws.tickets[day] = dayCount; if (!ws.tickets[day]) delete ws.tickets[day];
+      s.retroUsd -= priceUsd; s.retroTicketsUsed -= 1; rec.verified = true; rec.refunded = true;
+      save(s);
+      continue;
+    }
+    rec.verified = true; rec.notified = true;
+    console.log(`${w} retro ticket #${tokenId} transferred → tx ${hash} (round ${inv.round}, ${s.retroTicketsUsed} retro used)`);
+    emits.push([w, ...mintedEvent(rec, ws)]);
+    emits.push([w, '$grant', grantBody({ wallet: w, tokenId, round: inv.round, tx: hash })]);
+    await flush(s, emits);
+  }
+  return false;
 }
 
 // ── fast lane: accrue + buy for wallets with a FRESH execution receipt ────────
@@ -854,6 +1011,7 @@ async function winSweepInner() {
   // tickets the pool wallet minted today across all users - the "23 tickets minted today" line
   const todayKey = new Date().toISOString().slice(0, 10);
   const mintedToday = (s.purchases || []).filter((p) => p.day === todayKey && !p.refunded).reduce((a, p) => a + p.count, 0);
+  const sweepEmits = [];
   const one = async (w) => {
     const ws = wstate(s, w);
     let rows = [];
@@ -865,27 +1023,31 @@ async function winSweepInner() {
     // TICKET LIFECYCLE: daily status event + profile attributes (once a day,
     // and again the moment the draw count or claimable money changes)
     const st = dailyStatus({ ws, rows, currentRound, priceUsd: s.lastPriceUsd || 1, startMs: cfg.START_MS, poolUsd, mintedToday });
+    const emits = [];
     if (shouldEmit(ws.lastStatus, st)) {
-      ws.lastStatus = { dateUtc: st.dateUtc, ticketsInDraw: st.ticketsInDraw, unclaimedUsd: st.unclaimedUsd };
-      await Promise.allSettled([track(w, 'megapot_daily_status', st), cioIdentify(w, attrs(st))]);
+      ws.lastStatus = statusKey(st);
+      emits.push([w, 'megapot_daily_status', st]);
+      // an enrolled wallet that never traded and holds no ticket gets no daily profile
+      // write - nothing on it changed, and it is most of the feed
+      const idle = !(ws.volumeUsd > 0) && rows.length === 0;
+      if (!idle) emits.push([w, '$identify', attrs(st)]);
     }
-    for (const t of rows) {
-      const wa = t.winnings_amount;
-      const usd = wa && typeof wa === 'object' ? Number(wa.amount || 0) / 10 ** (wa.decimals ?? 6) : Number(wa || 0) / 1e6;
-      if (!(usd > 0)) continue;
-      const id = String(t.user_ticket_id ?? t.tx_hash ?? '');
-      if (!id) continue;
-      const seen = (ws.cioWins ??= {})[id];
-      if (!seen && t.claimed === false) {
-        ws.cioWins[id] = 'notified';
-        await track(w, 'megapot_win_unclaimed', { usd: Number(usd.toFixed(2)), round: String(t.round_id ?? ''), ticketId: id });
-      } else if (seen === 'notified' && t.claimed === true) {
-        ws.cioWins[id] = 'claimed';
-        await track(w, 'megapot_win_claimed', { usd: Number(usd.toFixed(2)), round: String(t.round_id ?? ''), ticketId: id });
-      }
-    }
+    rows.forEach((t, i) => {
+      const id = winId(t, i);
+      if (!id) return;
+      const tr = winTransition((ws.cioWins ??= {})[id], t);
+      if (!tr) return;
+      const usd = Number(dailyStatus({ ws: {}, rows: [t] }).wonLifetimeUsd);
+      // 'pending' blocks a re-queue; the marker flips to notified/claimed only once the
+      // outbox delivered the event (2xx)
+      ws.cioWins[id] = 'pending';
+      emits.push([w, tr.event, { usd, round: String(t.round_id ?? ''), ticketId: id }, { win: { wallet: w, id, state: tr.state } }]);
+    });
+    if (emits.length) sweepEmits.push(...emits);
   };
   const { done, skipped } = await mapLimit(eligibleWallets(), SWEEP_CONCURRENCY, one, { budgetMs: SWEEP_BUDGET_MS });
   if (skipped > 0) console.log(`[megapot] win sweep: ${done} wallet(s) swept, ${skipped} skipped (time budget ${SWEEP_BUDGET_MS / 1000}s)`);
+  // ledger first (markers + queue), then delivery; retries ride the next sweep
+  await flush(s, sweepEmits);
   save(s);
 }
