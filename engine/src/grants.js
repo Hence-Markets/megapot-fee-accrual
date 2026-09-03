@@ -19,9 +19,16 @@ export function blanketGrantsDue(ws, grants, { vol = 0, today } = {}) {
     if (g.beforeDate) {
       const days = Object.entries(ws.days || {}).filter(([, v]) => Number(v) > 0).map(([d]) => d);
       if (vol > 0 && today) days.push(today);
-      if (!days.length) continue;
-      const first = days.sort()[0];
-      if (first > String(g.beforeDate)) continue;
+      if (days.length) {
+        const first = days.sort()[0];
+        if (first > String(g.beforeDate)) continue;
+      } else if (!((Number(ws.volumeUsd) || 0) > 0)) {
+        continue;
+      }
+      // no day map but volume on the ledger: the volume was recorded by an earlier cycle (older
+      // build or pruned >14d), i.e. strictly before now - it can only be outside a cutoff that is
+      // itself in the past by more than the pruning window, which no live grant uses. 2026-09-03:
+      // 2 of the 5 Season 1 traders had volume but no `days` and were skipped.
     }
     out.push(g);
   }

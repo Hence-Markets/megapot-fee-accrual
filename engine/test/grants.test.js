@@ -26,3 +26,9 @@ test('open-ended grant (no beforeDate) needs only volume; bad rows are ignored',
   const open = [{ id: 'x', usd: 1 }, { id: 'bad', usd: 0 }, { usd: 3 }, { id: 'other', usd: 1, requires: 'streak' }];
   assert.deepEqual(blanketGrantsDue({ volumeUsd: 1, days: { '2026-09-09': 1 } }, open).map((g) => g.id), ['x']);
 });
+
+test('ledger volume without a day map still qualifies (recorded before this cycle)', () => {
+  assert.equal(blanketGrantsDue({ volumeUsd: 850, opsGrants: {} }, G).length, 1);
+  assert.equal(blanketGrantsDue({ volumeUsd: 850, days: {} }, G).length, 1);
+  assert.equal(blanketGrantsDue({ volumeUsd: 0, days: {} }, G).length, 0);
+});
