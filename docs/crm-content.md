@@ -1,6 +1,8 @@
 # Megapot Season 1 - CRM content (editable source)
 
-Mirrors the CRM Playbook artifact. Edit here or export from the artifact; Liquid tags render in Customer.io. Flows/segments/triggers: docs/crm-workflows.md.
+Mirrors the CRM Playbook artifact. Edit here, then `python3 docs/build-email-templates.py` to rebuild `email-templates/`. Liquid tags render in Customer.io. Flows/segments/triggers: docs/crm-workflows.md.
+
+Copy rules: address the reader as "you" (no `first_name` - nothing sets it); percentages `| times: 100 | round`; `pool_label` is the formatted pool string (`pool_usd` is numeric, for segments only); "today" numbers come from event props (`{{event.todayTotal}}`), not attributes; the footer unsubscribe is `{% unsubscribe_url %}` - verify it in a test send.
 
 ## A1 · A · T+24h · signed_up_no_trade
 **Subject:** Here is what one trade gets you
@@ -10,12 +12,12 @@ You signed up. One trade of $100 on any asset - or $100 combined - and a pack of
 
 After that every $2,500 of volume fills the meter for another ticket, and every day you trade opens a streak box (day 2 pays 60% of the time).
 
-The pool tonight: {{customer.pool_usd | default: "$1.1M"}}.
+The pool tonight: {{customer.pool_label | default: "$1.1M"}}.
 
 **Button:** See my first pack
 
 ## A2 · A · T+48h · signed_up_no_trade
-**Subject:** {{customer.first_name | default: "Someone"}} in your cohort just minted 5 tickets
+**Subject:** Someone in your cohort just minted 5 tickets
 **Preheader:** They found alpha. You found the signup page.
 
 A trader who joined the same week as you took the $100 pack, drew 5 tickets and is riding tonight's draw.
@@ -28,7 +30,7 @@ People are getting hilariously rich on a jackpot you have not entered yet. Your 
 **Subject:** {{customer.minted_today | default: "23"}} tickets minted today. None of them yours.
 **Preheader:** Draw closes 17:00 UTC
 
-Today the pool wallet minted {{customer.minted_today | default: "23"}} Megapot tickets for Hence traders. The pool is {{customer.pool_usd | default: "$1.1M"}}.
+Today the pool wallet minted {{customer.minted_today | default: "23"}} Megapot tickets for Hence traders. The pool is {{customer.pool_label | default: "$1.1M"}}.
 
 You have 0 tickets in tonight's draw. One $100 trade fixes that in five minutes.
 
@@ -38,7 +40,7 @@ You have 0 tickets in tonight's draw. One $100 trade fixes that in five minutes.
 **Subject:** We minted you a ticket. It rides tonight.
 **Preheader:** On us - no trade needed
 
-We put one Megapot ticket in your wallet for tonight's draw ({{customer.pool_usd | default: "$1.1M"}} pool). It is already yours.
+We put one Megapot ticket in your wallet for tonight's draw ({{customer.pool_label | default: "$1.1M"}} pool). It is already yours.
 
 Want more than one shot? A single $100 trade opens your 1-5 ticket pack next to it.
 
@@ -56,7 +58,7 @@ We will stop nudging. Your 1-5 ticket pack is still there for the length of Seas
 **Subject:** Your first pack: {{event.tickets}} tickets, riding tonight
 **Preheader:** Welcome to the draw
 
-Your first trade qualified. {{event.tickets}} Megapot tickets minted to your wallet and are in tonight's draw for {{customer.pool_usd | default: "$1.1M"}}.
+Your first trade qualified. {{event.tickets}} Megapot tickets minted to your wallet and are in tonight's draw for {{customer.pool_label | default: "$1.1M"}}.
 
 From here every trade fills the meter, and tomorrow's trade opens streak box 2 - it pays 60% of the time.
 
@@ -64,9 +66,9 @@ From here every trade fills the meter, and tomorrow's trade opens streak box 2 -
 
 ## B2 · B · daily 08:00 UTC · active_trader
 **Subject:** Box {{customer.next_box_day}} opens with today's trade
-**Preheader:** {{customer.next_box_p | times: 100}}% chance of +{{customer.next_box_size}}
+**Preheader:** {{customer.next_box_p | times: 100 | round}}% chance of +{{customer.next_box_size}}
 
-You are {{customer.campaign_trade_days}} days into the streak. Trade anything today and box {{customer.next_box_day}} opens: {{customer.next_box_p | times: 100}}% chance of +{{customer.next_box_size}} ticket{% if customer.next_box_size != 1 %}s{% endif %}.
+You are {{customer.campaign_trade_days}} days into the streak. Trade anything today and box {{customer.next_box_day}} opens: {{customer.next_box_p | times: 100 | round}}% chance of +{{customer.next_box_size}} ticket{% if customer.next_box_size != 1 %}s{% endif %}.
 
 Meter: {{customer.next_ticket_pct}}% to your next ticket - ${{customer.volume_to_next_ticket_usd}} more volume pops it.
 
@@ -98,17 +100,17 @@ Your next box is {{customer.next_box_day}}. It opens with one trade.
 
 {{event.count}} Megapot ticket(s) just minted to your wallet. Draw #{{event.drawing}} closes 17:00 UTC; results land in the hub after.
 
-Tonight you hold {{customer.tickets_in_draw}}.
+Tonight you hold {{event.todayTotal}}.
 
 **Button:** See my tickets
 
 ## C2 · C · daily 15:00 UTC · in_tonights_draw
 **Subject:** {{customer.tickets_in_draw}} ticket{% if customer.tickets_in_draw != 1 %}s{% endif %} in tonight's draw
-**Preheader:** Closes 17:00 UTC · pool {{customer.pool_usd | default: "$1.1M"}}
+**Preheader:** Closes 17:00 UTC · pool {{customer.pool_label | default: "$1.1M"}}
 
-You have {{customer.tickets_in_draw}} Megapot ticket(s) in tonight's draw for {{customer.pool_usd | default: "$1.1M"}}.
+You have {{customer.tickets_in_draw}} Megapot ticket(s) in tonight's draw for {{customer.pool_label | default: "$1.1M"}}.
 
-One more trade before 17:00 UTC still counts for tomorrow's box ({{customer.next_box_p | times: 100}}% for +{{customer.next_box_size}}).
+One more trade before 17:00 UTC still counts for tomorrow's box ({{customer.next_box_p | times: 100 | round}}% for +{{customer.next_box_size}}).
 
 **Button:** Open the hub
 
@@ -132,7 +134,7 @@ You still have ${{customer.unclaimed_usd}} in unclaimed Megapot winnings. It doe
 **Subject:** Paid: ${{event.usd}} in your wallet
 **Preheader:** Winners trade again
 
-${{event.usd}} landed in your wallet. Tonight's pool is {{customer.pool_usd | default: "$1.1M"}} and your next ticket is {{customer.next_ticket_pct}}% earned - ${{customer.volume_to_next_ticket_usd}} of volume pops it.
+${{event.usd}} landed in your wallet. Tonight's pool is {{customer.pool_label | default: "$1.1M"}} and your next ticket is {{customer.next_ticket_pct}}% earned - ${{customer.volume_to_next_ticket_usd}} of volume pops it.
 
 **Button:** Ride tonight's draw
 
@@ -142,17 +144,17 @@ ${{event.usd}} landed in your wallet. Tonight's pool is {{customer.pool_usd | de
 
 This season so far: {{customer.tickets_lifetime}} tickets, ${{customer.won_lifetime_usd}} won, ${{customer.fee_rebated_usd}} of fees returned as tickets, {{customer.campaign_trade_days}} streak days.
 
-Next up: box {{customer.next_box_day}} ({{customer.next_box_p | times: 100}}% for +{{customer.next_box_size}}) and {{customer.next_ticket_pct}}% of your next ticket.
+Next up: box {{customer.next_box_day}} ({{customer.next_box_p | times: 100 | round}}% for +{{customer.next_box_size}}) and {{customer.next_ticket_pct}}% of your next ticket.
 
 **Button:** See the full stack
 
 ## D1 · D · quiet_7d
 **Subject:** Your boxes are waiting
-**Preheader:** {{customer.next_box_p | times: 100}}% for +{{customer.next_box_size}} on your next trade
+**Preheader:** {{customer.next_box_p | times: 100 | round}}% for +{{customer.next_box_size}} on your next trade
 
-A week without a trade. Your streak did not reset - boxes count trade days, not consecutive days - so box {{customer.next_box_day}} is still yours to open: {{customer.next_box_p | times: 100}}% chance of +{{customer.next_box_size}} tickets.
+A week without a trade. Your streak did not reset - boxes count trade days, not consecutive days - so box {{customer.next_box_day}} is still yours to open: {{customer.next_box_p | times: 100 | round}}% chance of +{{customer.next_box_size}} tickets.
 
-Pool tonight: {{customer.pool_usd | default: "$1.1M"}}.
+Pool tonight: {{customer.pool_label | default: "$1.1M"}}.
 
 **Button:** Open box {{customer.next_box_day}}
 
@@ -174,9 +176,9 @@ From day 11 the streak boxes hold 4, 5, 6 and 8 tickets. You are on {{customer.c
 
 ## D4 · D · final 48h · everyone_season
 **Subject:** Two draws left in Season 1
-**Preheader:** Tickets minted after Sunday do not ride
+**Preheader:** Tickets minted after the season ends Sept 16, 22:00 UTC do not ride
 
-Season 1 closes in 48 hours. Two draws left, {{customer.pool_usd | default: "$1.1M"}} in the pool, and any ticket you earn now still rides. Meter: {{customer.next_ticket_pct}}%.
+Season 1 closes in 48 hours (September 16, 22:00 UTC). Two draws left, {{customer.pool_label | default: "$1.1M"}} in the pool, and any ticket you earn now still rides. Meter: {{customer.next_ticket_pct}}%.
 
 **Button:** Trade before the close
 

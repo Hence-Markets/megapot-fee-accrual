@@ -16,7 +16,7 @@
   <tr><td style="background:#15151C;border:2px solid #26262F;border-radius:20px;padding:34px 34px 30px;">
     <div style="font:800 11px/1 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#F0C674;letter-spacing:.18em;text-transform:uppercase;margin:0 0 14px;">Streak</div>
     <h1 style="margin:0 0 18px;font:900 28px/1.15 'Archivo Black',Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#F4F3F8;letter-spacing:-.01em;">Your first pack: {{event.tickets}} tickets, riding tonight</h1>
-    <p style="margin:0 0 16px;font:400 16px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#C9C7D6;">Your first trade qualified. {{event.tickets}} Megapot tickets minted to your wallet and are in tonight&#x27;s draw for {{customer.pool_usd | default: "$1.1M"}}.</p>
+    <p style="margin:0 0 16px;font:400 16px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#C9C7D6;">Your first trade qualified. {{event.tickets}} Megapot tickets minted to your wallet and are in tonight&#x27;s draw for {{customer.pool_label | default: "$1.1M"}}.</p>
 <p style="margin:0 0 16px;font:400 16px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#C9C7D6;">From here every trade fills the meter, and tomorrow&#x27;s trade opens streak box 2 - it pays 60% of the time.</p>
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 6px;"><tr>
       <td style="border-radius:999px;background:#FFFFFF;box-shadow:0 4px 0 #2C2547;">
@@ -25,7 +25,7 @@
   </td></tr>
   <tr><td style="padding:18px 8px 0;font:400 11.5px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#6F6F80;">
     Tickets mint non-custodially to your own wallet on Base; draws, odds and payouts are run by Megapot under <a href="https://megapot.io/terms" style="color:#8A879A;">Megapot's terms</a>. Hence does not guarantee rewards. Not available where prohibited.<br>
-    You get this because you linked your email in the Reward Hub. <a href="{{ unsubscribe_url }}" style="color:#8A879A;">Unsubscribe</a> &middot; <a href="https://app.hence.markets/#/rewards" style="color:#8A879A;">Reward Hub</a>
+    You get this because you linked your email in the Reward Hub. <a href="{% unsubscribe_url %}" style="color:#8A879A;">Unsubscribe</a> &middot; <a href="https://app.hence.markets/#/rewards" style="color:#8A879A;">Reward Hub</a>
   </td></tr>
 </table></td></tr></table>
 </body></html>

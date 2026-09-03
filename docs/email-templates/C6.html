@@ -17,7 +17,7 @@
     <div style="font:800 11px/1 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#7CD486;letter-spacing:.18em;text-transform:uppercase;margin:0 0 14px;">Your tickets</div>
     <h1 style="margin:0 0 18px;font:900 28px/1.15 'Archivo Black',Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#F4F3F8;letter-spacing:-.01em;">Your week: {{customer.tickets_lifetime}} tickets, ${{customer.fee_rebated_usd}} rebated</h1>
     <p style="margin:0 0 16px;font:400 16px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#C9C7D6;">This season so far: {{customer.tickets_lifetime}} tickets, ${{customer.won_lifetime_usd}} won, ${{customer.fee_rebated_usd}} of fees returned as tickets, {{customer.campaign_trade_days}} streak days.</p>
-<p style="margin:0 0 16px;font:400 16px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#C9C7D6;">Next up: box {{customer.next_box_day}} ({{customer.next_box_p | times: 100}}% for +{{customer.next_box_size}}) and {{customer.next_ticket_pct}}% of your next ticket.</p>
+<p style="margin:0 0 16px;font:400 16px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#C9C7D6;">Next up: box {{customer.next_box_day}} ({{customer.next_box_p | times: 100 | round}}% for +{{customer.next_box_size}}) and {{customer.next_ticket_pct}}% of your next ticket.</p>
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 6px;"><tr>
       <td style="border-radius:999px;background:#FFFFFF;box-shadow:0 4px 0 #2C2547;">
         <a href="https://app.hence.markets/#/rewards" style="display:inline-block;padding:15px 30px;font:800 15px/1 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#0B0B10;text-decoration:none;border-radius:999px;">See the full stack &rarr;</a>
@@ -25,7 +25,7 @@
   </td></tr>
   <tr><td style="padding:18px 8px 0;font:400 11.5px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#6F6F80;">
     Tickets mint non-custodially to your own wallet on Base; draws, odds and payouts are run by Megapot under <a href="https://megapot.io/terms" style="color:#8A879A;">Megapot's terms</a>. Hence does not guarantee rewards. Not available where prohibited.<br>
-    You get this because you linked your email in the Reward Hub. <a href="{{ unsubscribe_url }}" style="color:#8A879A;">Unsubscribe</a> &middot; <a href="https://app.hence.markets/#/rewards" style="color:#8A879A;">Reward Hub</a>
+    You get this because you linked your email in the Reward Hub. <a href="{% unsubscribe_url %}" style="color:#8A879A;">Unsubscribe</a> &middot; <a href="https://app.hence.markets/#/rewards" style="color:#8A879A;">Reward Hub</a>
   </td></tr>
 </table></td></tr></table>
 </body></html>

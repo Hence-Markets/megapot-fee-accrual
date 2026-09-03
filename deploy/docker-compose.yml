@@ -15,18 +15,33 @@ services:
       dockerfile: deploy/Dockerfile
       target: engine
     image: megapot-engine:latest
+    # ONE instance, one name. The ledger lock is pid-based and blind across containers, so a
+    # second engine container against the same volume could steal a live lock mid-buy. A fixed
+    # name makes `docker compose up` replace rather than add, and gives the watch/diagnostics
+    # workflows a stable handle.
+    container_name: megapot-engine
+    # Run a real PID 1 (tini) so SIGTERM from `docker stop` reaches run_engine.sh; without it the
+    # shell never saw the signal and an in-flight buy got SIGKILL at the end of the grace period.
+    init: true
     env_file: .env
     volumes:
       # The ledger MUST outlive the container. Losing it would re-credit already-paid fills
       # on the next accrue, which is the one failure mode that costs real money.
+      # Backed up hourly by deploy/backup_ledger.sh (cron) — see deploy/README.md and docs/backups.md.
       - ledger:/app/engine/state
     restart: unless-stopped
     stop_grace_period: 120s   # a buy in flight gets to write its tx hash
     healthcheck:
-      test: ["CMD-SHELL", "test -d /app/engine/state"]
+      # The engine touches state/heartbeat.<target> at the end of every cycle. Healthy means
+      # that file is younger than 2 x ENGINE_INTERVAL_S (300 s -> 10 min, +1 min slack). A
+      # crash-loop, a hung RPC call or a wedged lock all stop the heartbeat and flip the
+      # container to unhealthy, which megapot-watch.yml (neo-hence) turns into a Telegram alert.
+      # If ENGINE_INTERVAL_S is raised, raise -mmin to match (2 x interval, in minutes, +1).
+      test: ["CMD-SHELL", "find /app/engine/state -name 'heartbeat.*' -mmin -11 | grep -q ."]
       interval: 60s
       timeout: 5s
       retries: 3
+      start_period: 180s      # first heartbeat lands after the first full cycle
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }

@@ -64,8 +64,8 @@
     "ticketsPerWalletPerDay": 5,
     "ticketsPerWalletPerWeek": 15,
     "globalBudgetUsdc": 1500,
-    "$globalBudgetUsdc": "SEASON 1 BUDGET (Sarthak, 2026-09-02): 820+ tickets seeded into the pool wallet = 200 activation packs (FCFS) + 420 streak boxes (30/day x 14) + 200 multiplier rebate cap; trading-fee rebate is UNCAPPED and topped up daily. This ceiling is a spend safety stop, not the budget: keep it above wallet balance and raise it with each top-up (deploy dispatch budget_usdc overrides). Retro: Megapot sends 12 tickets/day to the pool wallet (168 over the season) - see $retroTickets.",
-    "$retroTickets": "Megapot's 12 tickets/day land in the pool wallet as NFTs. They are inventory, not USDC: to hand them to users the engine would transfer TicketNFTs instead of buying - NOT built yet. Until then they sit in stock (cover for rolled-over queues) and the ledger keeps buying with USDC."
+    "$globalBudgetUsdc": "SEASON 1 BUDGET (Sarthak, 2026-09-02): 820+ tickets seeded into the pool wallet = 200 activation packs (FCFS) + 420 streak boxes (30/day x 14) + 200 multiplier rebate cap; trading-fee rebate is UNCAPPED and topped up daily. This ceiling is a spend safety stop, not the budget: keep it above wallet balance and raise it with each top-up (deploy dispatch budget_usdc overrides; LIVE dispatch 2026-09-03: budget_usdc=1500). Retro: Megapot sends 12 tickets/day to the pool wallet (168 over the season) as NFTs, not USDC - they are handed out by the retro transfer path (see `retro`) and do not count against this USDC ceiling.",
+    "$retroTickets": "Megapot's 12 tickets/day land in the pool wallet as TicketNFTs (inventory, not USDC). With retro.enabled the engine transfers pool-held tickets of the ACTIVE round to users to settle credit BEFORE buying with USDC (RETRO_TRANSFERS=1, TICKET_NFT in the deploy env). Tickets from a closed round cannot be handed out and stay in stock. See `retro` below."
   },
   "firstTradeBonus": {
     "minTradeUsd": 100,
@@ -178,22 +178,6 @@
     },
     "megapotTermsUrl": "https://docs.megapot.io/appendix/terms-of-service"
   },
-  "streak": {
-    "poolTickets": 20,
-    "checkpoints": [
-      {
-        "day": 3,
-        "minCumulativeUsd": 1000,
-        "tickets": 1
-      },
-      {
-        "day": 5,
-        "minCumulativeUsd": 5000,
-        "tickets": 1
-      }
-    ],
-    "$note": "trade-day streak within the week: at day N with >= min cumulative qualifying volume, +1 ticket, once per checkpoint per week per wallet; shared 20-ticket season pool, first come first served. NOTE: the rules-doc draft mentioned a 15-ticket pool in one place and 20 in another - 20 is live pending veto."
-  },
   "opsGrants": [
     {
       "wallet": "0x9cc6c5d8318c69b602b866f644628e61d98f55ed",
@@ -294,10 +278,20 @@
   "$requireBuilderFee": "Only fills that carried Hence's builder fee count for credit, packs and streak boxes. Direct HL trades earn nothing (they earn Hence nothing).",
   "multiplierBonus": {
     "poolTickets": 200,
-    "$note": "the EXTRA tickets multiplier tiers produce (above base fee rebate) are capped season-wide at 200. Tier enforcement in the engine is not built yet (tiers need the basket-volume feed) - this is the cap it must honour when it lands."
+    "$note": "the EXTRA tickets multiplier tiers produce (above base fee rebate) are capped season-wide at 200. Kicker enforcement and this cap are BUILT in the engine (engine.js applies the tier kicker and MULT_BONUS_POOL); they activate when BASKET_URL is set in the deploy env (tier feed). Until then the base rate applies."
   },
   "testReset": {
     "$note": "Team-test reset (2026-09-03): node src/run.js reset <wallets> wipes those wallets' ledger state and returns their pool draws. The hub clears its per-wallet markers when resetEpoch changes.",
     "resetEpoch": "2026-09-03a"
+  },
+  "hub": {
+    "marketingConsentDefault": false,
+    "engineCycleS": 300,
+    "$note": "hub-only keys merged to the top level of neo-hence web/src/lib/megapot-campaign.ts by engine/scripts/gen-hub-sheet.mjs. marketingConsentDefault=false: the consent box is unticked by default (pre-ticked consent fails EU rules, Planet49). engineCycleS mirrors ENGINE_INTERVAL_S (300): buys land within one cycle of a threshold crossing."
+  },
+  "retro": {
+    "enabled": true,
+    "ticketNft": "0x48ffe35abb9f4780a4f1775c2ce1c46185b366e4",
+    "$note": "Megapot mints 12 tickets/day to the pool wallet; the engine transfers pool-held tickets of the ACTIVE round to users before buying with USDC"
   }
 }

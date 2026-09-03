@@ -6,7 +6,8 @@
   "scripts": {
     "accrue": "node src/run.js accrue",
     "buy": "node src/run.js buy",
-    "status": "node src/run.js status"
+    "status": "node src/run.js status",
+    "gen:hub-sheet": "node scripts/gen-hub-sheet.mjs ../campaign.json"
   },
   "keywords": [],
   "author": "",

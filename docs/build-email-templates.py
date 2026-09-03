@@ -3,8 +3,9 @@
 
 Usage: python3 docs/build-email-templates.py [docs/crm-content.md]
 Writes docs/email-templates/<ID>.html (one per template) + index.html (gallery).
-Liquid tags ({{customer.x}}, {{event.x}}, {% if %}) pass through untouched -
-Customer.io renders them. Inline CSS only, 600px, dark-first, table layout:
+Liquid tags ({{customer.x}}, {{event.x}}, {% if %}, {% unsubscribe_url %}) pass through
+untouched - Customer.io renders them. VERIFY the unsubscribe link in a test send: if it
+renders literally, switch it to {{ unsubscribe_url }} here and rebuild. Inline CSS only, 600px, dark-first, table layout:
 the same visual world as the Reward Hub (violet #C4B5FD on #0B0B10, lime for
 money, the Megapot wordmark as text)."""
 import re, sys, html, pathlib
@@ -73,7 +74,7 @@ def render(t):
   </td></tr>
   <tr><td style="padding:18px 8px 0;font:400 11.5px/1.6 Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#6F6F80;">
     Tickets mint non-custodially to your own wallet on Base; draws, odds and payouts are run by Megapot under <a href="https://megapot.io/terms" style="color:#8A879A;">Megapot's terms</a>. Hence does not guarantee rewards. Not available where prohibited.<br>
-    You get this because you linked your email in the Reward Hub. <a href="{{{{ unsubscribe_url }}}}" style="color:#8A879A;">Unsubscribe</a> &middot; <a href="{HUB}" style="color:#8A879A;">Reward Hub</a>
+    You get this because you linked your email in the Reward Hub. <a href="{{% unsubscribe_url %}}" style="color:#8A879A;">Unsubscribe</a> &middot; <a href="{HUB}" style="color:#8A879A;">Reward Hub</a>
   </td></tr>
 </table></td></tr></table>
 </body></html>
