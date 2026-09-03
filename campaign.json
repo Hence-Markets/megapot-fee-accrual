@@ -220,6 +220,12 @@
       "usd": 1.0,
       "id": "goodwill-batch-2026-09-03-97c4",
       "$note": "2026-09-03 goodwill batch (Sarthak): +1 more (3 total with goodwill-feed-regress-2026-09-03) ticket(s) for the enrollment-feed regression day (neo-hence #223). Applied once per id; settles retro-first from pool-held round tickets; per-user 5/day cap paces it."
+    },
+    {
+      "wallet": "0x97c494c2fe6f23946e66829e0585eedfa71c81ff",
+      "usd": 2.0,
+      "id": "goodwill-97c4-plus5-2026-09-03",
+      "$note": "2026-09-03 (Sarthak): 'what he owes + 5 more'. Owed = $7.60 fee credit (accrues on its own once the wallet is region-exempted via MEGAPOT_GEO_ALLOW); +5 goodwill = $2 (#22) + $1 (#24) + this $2. Total ~12 tickets, paced 5/day."
     }
   ],
   "blanketGrants": [
@@ -229,8 +235,7 @@
       "requires": "traded",
       "beforeDate": "2026-09-03",
       "$note": "2026-09-03 (Sarthak): +2 tickets to EVERY wallet with qualifying Hence volume whose first trade day is on/before 2026-09-03 UTC - the day the verified-only enrollment feed dropped ~90 wallets from accrual (neo-hence #223). Once per wallet; settles retro-first from pool-held round tickets, then USDC; per-user 5/day cap paces it. Not a standing activation bonus: a first trade on 09-04 or later does not qualify."
-    }
-    ,
+    },
     {
       "id": "goodwill-pre-season-traders-2026-09-03",
       "usd": 1.0,
@@ -238,12 +243,6 @@
       "beforeMs": 1788379200000,
       "onlyWithoutSeasonVolume": true,
       "$note": "2026-09-03 (Sarthak): +1 ticket to every enrolled wallet that traded on Hence BEFORE Season 1 (earliest reconciled venue fill < 2026-09-02 20:00 UTC, per the backend feed's firstFillMs) and has no in-window volume - the 12 all-time traders the season grant above does not reach. Once per wallet."
-    },
-    {
-      "wallet": "0x97c494c2fe6f23946e66829e0585eedfa71c81ff",
-      "usd": 2.0,
-      "id": "goodwill-97c4-plus5-2026-09-03",
-      "$note": "2026-09-03 (Sarthak): 'what he owes + 5 more'. Owed = $7.60 fee credit (accrues on its own once the wallet is region-exempted via MEGAPOT_GEO_ALLOW); +5 goodwill = $2 (#22) + $1 (#24) + this $2. Total ~12 tickets, paced 5/day."
     }
   ],
   "$multipliers": "DECIDED 2026-09-03: tiers are KICKERS on top of base minting - 2x = +25% credit on qualifying volume, 3x = +50%, 4x = +75%, 5x = +100% (200% of fees back). Tiers unlock on thesis-basket VOLUME (entry $1,000 per the rules doc). The $2,500/$5,000/$10,000 rungs for 3x-5x are proposed defaults pending final sign-off. Tiers activate when basket tracking goes live; base rate applies until then.",
