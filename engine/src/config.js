@@ -1,3 +1,31 @@
+// ── Retro ticket transfers + outbox (feat/retro-ticket-transfers) ───────────
+// Megapot mints 12 "Megapot Tickets" (ERC-721) a day straight to the pool wallet.
+// The engine hands THOSE to users first (transferFrom pool -> user, one tokenId per
+// ticket owed) and only buys with USDC for what is left. Env keys:
+//  - TICKET_NFT          ERC-721 address. Mainnet default is the live contract;
+//                        testnet has no default (set it, or retro is disabled there).
+//  - RETRO_TRANSFERS     '0' switches the retro path off (default on when TICKET_NFT set).
+//  - GRANTS_URL          hence backend endpoint that records a retro grant so the hub
+//                        can label it. Default: USERS_URL with /api/admin/wallets ->
+//                        /api/admin/megapot/grants. Bearer USERS_TOKEN.
+//  - MEGAPOT_API         override of the venue API base (default per network).
+//  - POOL_WALLET         DRY_RUN only: pool address to read balances / inventory from
+//                        when no PRIVATE_KEY is set (rehearsals show 'WOULD transfer').
+// Ledger fields this path adds (state/ledger.<target>.json):
+//  - intents[]           {kind:'buy'|'transfer', wallet, count, tokenId?, nonce, priceUsd,
+//                        day, ts, tx, drawing|round} - written BEFORE broadcast, settled
+//                        by nonce (reconcileIntents).
+//  - purchases[]         kind:'retro' rows carry tokenId + count:1; verified/refunded as
+//                        USDC buys. Retro rows never touch spentUsdc / GLOBAL_BUDGET.
+//  - retroUsd, retroTicketsUsed   season totals of retro tickets handed out.
+//  - outbox[]            {id, kind:'track'|'identify'|'grant', wallet, name, data, attrs,
+//                        body, tries, nextAt, done:{cio,ph}, then:{win}} - every CRM /
+//                        PostHog / grant call is queued here after the ledger save and
+//                        delivered at-least-once with backoff; wins mark 'notified' only
+//                        after a 2xx.
+//  - wallets.*.lastIdentifyMs     debounce for the on-trade Customer.io identify.
+//  - wallets.*.lastStatus         now also mintedToday + poolBucket (see lifecycle.js).
+//
 // ── Campaign parameters ─────────────────────────────────────────────────────
 // Per the Reward Hub spec (v3/v4) and the Hence feature-gates doc:
 //  - START_MS is NOT optional: without it every historical fill becomes
@@ -129,7 +157,14 @@ export const cfg = {
   // 64-hex paste from a wallet UI is the common case and must not stall minting.
   PRIVATE_KEY: (() => { const k = (process.env.PRIVATE_KEY || '').trim(); return /^[0-9a-fA-F]{64}$/.test(k) ? `0x${k}` : k; })(),
   SOURCE_TAG: 'hence-fee-accrual',
+  // retro ticket transfers (see header): the ERC-721 the pool wallet's daily tickets land in
+  TICKET_NFT: (process.env.TICKET_NFT || ((process.env.TARGET || campaign.campaign.network || 'testnet') === 'mainnet' ? '0x48ffe35abb9f4780a4f1775c2ce1c46185b366e4' : '')).toLowerCase(),
+  RETRO_TRANSFERS: process.env.RETRO_TRANSFERS !== '0',
+  POOL_WALLET: (process.env.POOL_WALLET || '').toLowerCase(),
+  GRANTS_URL: process.env.GRANTS_URL || (process.env.USERS_URL || '').replace(/\/api\/admin\/wallets.*$/, '/api/admin/megapot/grants'),
+  MEGAPOT_API: (process.env.MEGAPOT_API || ((process.env.TARGET || campaign.campaign.network || 'testnet') === 'mainnet' ? 'https://api.megapot.io/v1' : 'https://api-testnet.megapot.io/v1')).replace(/\/$/, ''),
 };
+export const retroEnabled = () => !!(cfg.RETRO_TRANSFERS && cfg.TICKET_NFT);
 
 export const net = () => cfg.nets[cfg.TARGET];
 
@@ -140,6 +175,19 @@ export const jackpotAbi = [
 export const buyerAbi = [
   { type: 'function', name: 'buyTickets', stateMutability: 'nonpayable', inputs: [
     { type: 'uint256' }, { type: 'address' }, { type: 'address[]' }, { type: 'uint256[]' }, { type: 'bytes32' }], outputs: [] },
+];
+// Megapot Tickets (ERC-721). getUserTickets mirrors the hub's ABI fragment (RewardHub.tsx).
+export const erc721Abi = [
+  { type: 'function', name: 'ownerOf', stateMutability: 'view', inputs: [{ type: 'uint256' }], outputs: [{ type: 'address' }] },
+  { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'transferFrom', stateMutability: 'nonpayable', inputs: [{ type: 'address' }, { type: 'address' }, { type: 'uint256' }], outputs: [] },
+  { type: 'function', name: 'getUserTickets', stateMutability: 'view',
+    inputs: [{ type: 'address' }, { type: 'uint256' }],
+    outputs: [{ type: 'tuple[]', components: [
+      { name: 'ticketId', type: 'uint256' },
+      { name: 'ticket', type: 'tuple', components: [{ name: 'drawingId', type: 'uint256' }, { name: 'packedTicket', type: 'uint256' }, { name: 'referralScheme', type: 'bytes32' }] },
+      { name: 'normals', type: 'uint8[]' },
+      { name: 'bonusball', type: 'uint8' } ] }] },
 ];
 export const erc20Abi = [
   { type: 'function', name: 'approve', stateMutability: 'nonpayable', inputs: [{ type: 'address' }, { type: 'uint256' }], outputs: [{ type: 'bool' }] },

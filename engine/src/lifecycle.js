@@ -58,16 +58,64 @@ export function attrs(st) {
     days_since_last_trade: st.daysSinceLastTrade,
     next_box_day: st.nextBoxDay, next_box_p: st.nextBoxP, next_box_size: st.nextBoxSize,
     megapot_status_at: st.dateUtc,
-    // the two figures every email leans on, formatted for Liquid as-is
-    pool_usd: st.poolUsd == null ? '$1.1M' : `$${st.poolUsd.toLocaleString('en-US')}`,
+    // the two figures every email leans on: pool_usd is a NUMBER (segments can compare
+    // it), pool_label the Liquid-ready string the templates print
+    ...(st.poolUsd == null ? {} : { pool_usd: st.poolUsd }),
+    pool_label: st.poolUsd == null ? '$1.1M' : `$${st.poolUsd.toLocaleString('en-US')}`,
     minted_today: st.mintedToday,
   };
 }
 
-/** emit once per UTC day, plus immediately when the draw count or claimable
-    money changes - those are the two things a same-day email must not miss */
+/** the attributes a TRADE moves - identified on megapot_trade so the afternoon sends
+ *  see today's box day / next-ticket percent, without touching the ticket + win fields
+ *  only the venue rows can supply */
+export function tradeAttrs(st) {
+  const a = attrs(st);
+  return {
+    next_ticket_pct: a.next_ticket_pct, volume_to_next_ticket_usd: a.volume_to_next_ticket_usd,
+    fee_rebated_usd: a.fee_rebated_usd, campaign_volume_usd: a.campaign_volume_usd,
+    campaign_trade_days: a.campaign_trade_days, last_trade_at: a.last_trade_at,
+    days_since_last_trade: a.days_since_last_trade,
+    next_box_day: a.next_box_day, next_box_p: a.next_box_p, next_box_size: a.next_box_size,
+  };
+}
+
+/** on-trade identify cadence: the first trade of the UTC day identifies at once, then at
+ *  most once an hour */
+export function shouldIdentifyOnTrade(lastIdentifyMs, nowMs = Date.now()) {
+  if (!lastIdentifyMs) return true;
+  if (new Date(lastIdentifyMs).toISOString().slice(0, 10) !== new Date(nowMs).toISOString().slice(0, 10)) return true;
+  return nowMs - lastIdentifyMs >= 60 * 60_000;
+}
+
+/** the pool moves with every ticket sold; compare it in $10k steps so a same-day
+    refresh happens when the headline number moves, not every sweep */
+export const poolBucket = (poolUsd) => (poolUsd == null ? null : Math.round(poolUsd / 10_000));
+/** the snapshot the ledger keeps to decide the next emit */
+export const statusKey = (st) => ({ dateUtc: st.dateUtc, ticketsInDraw: st.ticketsInDraw, unclaimedUsd: st.unclaimedUsd, mintedToday: st.mintedToday, poolBucket: poolBucket(st.poolUsd) });
+/** emit once per UTC day, plus immediately when the draw count, claimable money,
+    today's minted total or the headline pool changes - the figures a same-day
+    email must not show stale */
 export function shouldEmit(prev, st) {
   if (!prev) return true;
   if (prev.dateUtc !== st.dateUtc) return true;
-  return prev.ticketsInDraw !== st.ticketsInDraw || prev.unclaimedUsd !== st.unclaimedUsd;
+  if (prev.ticketsInDraw !== st.ticketsInDraw || prev.unclaimedUsd !== st.unclaimedUsd) return true;
+  if (prev.mintedToday != null && prev.mintedToday !== st.mintedToday) return true;
+  if (prev.poolBucket != null && prev.poolBucket !== poolBucket(st.poolUsd)) return true;
+  return false;
 }
+
+/** win dedupe - PURE: which event (if any) a venue ticket row triggers, given the
+ *  ledger marker for its id. First sight of a claimed win emits claimed directly
+ *  (never silently swallowed); claimed !== true counts as unclaimed. */
+export function winTransition(seen, row) {
+  const usd = usdOf(row);
+  if (!(usd > 0)) return null;
+  const claimed = row.claimed === true;
+  if (!seen) return claimed ? { event: 'megapot_win_claimed', state: 'claimed' } : { event: 'megapot_win_unclaimed', state: 'notified' };
+  if (seen === 'notified' && claimed) return { event: 'megapot_win_claimed', state: 'claimed' };
+  return null;
+}
+/** ticket id for the dedupe map: user_ticket_id, else tx_hash#index so a multi-ticket
+ *  buy never collapses to one win */
+export const winId = (row, index) => (row.user_ticket_id != null ? String(row.user_ticket_id) : row.tx_hash ? `${row.tx_hash}#${index}` : '');
