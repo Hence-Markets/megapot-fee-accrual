@@ -32,3 +32,14 @@ test('ledger volume without a day map still qualifies (recorded before this cycl
   assert.equal(blanketGrantsDue({ volumeUsd: 850, days: {} }, G).length, 1);
   assert.equal(blanketGrantsDue({ volumeUsd: 0, days: {} }, G).length, 0);
 });
+
+test('venue-traded cohort: pre-season traders from the feed, not stacking on season traders', () => {
+  const P = [{ id: 'pre-season', usd: 1, requires: 'venue-traded', beforeMs: 1788379200000, onlyWithoutSeasonVolume: true }];
+  const fresh = { volumeUsd: 0, days: {}, opsGrants: {} };
+  assert.equal(blanketGrantsDue(fresh, P, { firstFillMs: 1710000000000 }).length, 1, 'traded in March, nothing this season');
+  assert.equal(blanketGrantsDue(fresh, P, { firstFillMs: 1788400000000 }).length, 0, 'first fill inside the season is not pre-season');
+  assert.equal(blanketGrantsDue(fresh, P, { firstFillMs: 0 }).length, 0, 'no reconciled fill on the feed');
+  assert.equal(blanketGrantsDue({ volumeUsd: 300, days: { '2026-09-02': 300 } }, P, { firstFillMs: 1710000000000 }).length, 0, 'season trader already got the season grant');
+  fresh.opsGrants['pre-season'] = { usd: 1 };
+  assert.equal(blanketGrantsDue(fresh, P, { firstFillMs: 1710000000000 }).length, 0, 'once');
+});

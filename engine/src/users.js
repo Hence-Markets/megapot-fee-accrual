@@ -6,7 +6,7 @@
 
 /** feed rows -> { wallets, emailBound, users } (users: wallet -> user key) */
 export function parseRows(rows) {
-  const wallets = [], emailBound = {}, users = {};
+  const wallets = [], emailBound = {}, users = {}, firstFill = {};
   for (const row of rows || []) {
     const obj = typeof row === 'object' && row !== null;
     const w = String(obj ? row.wallet : row).trim().toLowerCase();
@@ -16,8 +16,10 @@ export function parseRows(rows) {
     emailBound[w] = obj ? !!(row.emailBound ?? row.email_bound) : false;   // a bare address proves nothing
     const u = obj ? String(row.user ?? row.user_id ?? '').trim() : '';
     if (u) users[w] = u;
+    const ff = obj ? Number(row.firstFillMs ?? row.first_fill_ms) : 0;   // earliest reconciled venue fill, any time
+    if (ff > 0) firstFill[w] = ff;
   }
-  return { wallets, emailBound, users };
+  return { wallets, emailBound, users, firstFill };
 }
 
 /** every wallet the ledger knows for `w`'s user (always includes `w`) */

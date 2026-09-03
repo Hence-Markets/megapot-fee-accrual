@@ -8,13 +8,26 @@
 //   beforeDate         -> only wallets whose FIRST recorded trade day is on/before this UTC
 //                         date (a cohort snapshot, not a standing activation bonus); omit for
 //                         an open-ended grant.
-export function blanketGrantsDue(ws, grants, { vol = 0, today } = {}) {
+//   requires 'venue-traded' -> the backend feed reports a reconciled venue fill for the wallet
+//                         (firstFillMs, ANY time - before the campaign too). beforeMs bounds the
+//                         first fill; onlyWithoutSeasonVolume:true skips wallets that already have
+//                         in-window volume (so a 'pre-season traders' grant does not stack on a
+//                         'season traders' grant).
+export function blanketGrantsDue(ws, grants, { vol = 0, today, firstFillMs = 0 } = {}) {
   const out = [];
   for (const g of grants || []) {
     if (!g || !g.id || !(Number(g.usd) > 0)) continue;
     if (ws.opsGrants && ws.opsGrants[g.id]) continue;
-    if ((g.requires || 'traded') !== 'traded') continue;
     const total = (Number(ws.volumeUsd) || 0) + (Number(vol) || 0);
+    if (g.requires === 'venue-traded') {
+      const ff = Number(firstFillMs) || 0;
+      if (!(ff > 0)) continue;
+      if (g.beforeMs && ff >= Number(g.beforeMs)) continue;
+      if (g.onlyWithoutSeasonVolume && total > 0) continue;
+      out.push(g);
+      continue;
+    }
+    if ((g.requires || 'traded') !== 'traded') continue;
     if (!(total > 0)) continue;
     if (g.beforeDate) {
       const days = Object.entries(ws.days || {}).filter(([, v]) => Number(v) > 0).map(([d]) => d);

@@ -97,6 +97,7 @@ export function eligibleWallets() {
 }
 // whitelist test cohorts (emailBound null) skip the email gate
 const emailBound = (w) => (_feed && _feed.emailBound != null ? !!_feed.emailBound[w] : true);
+const firstFillOf = (w) => Number(_feed?.firstFill?.[w]) || 0;   // from the backend feed; 0 = never reconciled
 // the wallet -> user map lives on the ledger so caps stay per user even when the feed is
 // cached or a wallet later drops off it
 const syncUsers = (s) => { for (const [w, u] of Object.entries(_feed?.users || {})) (s.users ??= {})[w] = u; };
@@ -449,7 +450,7 @@ async function accrueInner(only = null) {
       console.log(`${w} ops grant '${g.id}': +$${Number(g.usd).toFixed(2)} credit`);
     }
     // blanket grants: campaign-wide one-time credit (e.g. "+2 to everyone who traded by <date>")
-    for (const g of blanketGrantsDue(ws, cfg.BLANKET_GRANTS, { vol, today: new Date().toISOString().slice(0, 10) })) {
+    for (const g of blanketGrantsDue(ws, cfg.BLANKET_GRANTS, { vol, today: new Date().toISOString().slice(0, 10), firstFillMs: firstFillOf(w) })) {
       ws.creditUsdc += Number(g.usd) || 0;
       (ws.opsGrants ??= {})[g.id] = { usd: g.usd, at: Date.now(), blanket: true };
       console.log(`${w} blanket grant '${g.id}': +$${Number(g.usd).toFixed(2)} credit`);
