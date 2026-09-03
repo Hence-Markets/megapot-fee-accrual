@@ -110,6 +110,12 @@ export const cfg = {
   // buy-tx fee ceiling: raise via MAX_FEE_GWEI when Base runs hot - buys stall
   // (retrying each cycle) while the base fee sits above this cap.
   MAX_FEE_WEI: BigInt(Math.round(Number(process.env.MAX_FEE_GWEI || 0.018) * 1e9)),
+  // buys pay maxFeePerGas = min(2 x current base fee, this hard ceiling); a base fee
+  // above MAX_FEE_WEI raises a fee_spike alert, above the ceiling buys wait.
+  MAX_FEE_CEILING_WEI: BigInt(Math.round(Number(process.env.MAX_FEE_GWEI_CEILING || 0.1) * 1e9)),
+  PRIORITY_FEE_WEI: 500_000n,                        // 0.0005 gwei tip
+  // Hyperliquid info calls per minute across the full sweep + fast lane (token bucket)
+  HL_RPM: Number(process.env.HL_RPM || 50),
   // Customer.io Track credentials - comms events; missing = integration off
   CIO_SITE_ID: process.env.CUSTOMERIO_SITE_ID || '',
   CIO_TRACK_KEY: process.env.CUSTOMERIO_TRACK_KEY || '',
