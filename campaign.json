@@ -281,6 +281,12 @@
       "usd": 4.0,
       "id": "streak-boost-2026-09-04-51755c",
       "$note": "2026-09-04 (Sarthak): +20 tickets split evenly (4 each) across the 5 non-team wallets with Hence-routed HL volume on 09-03/09-04 UTC, to ride round 164 (17:00Z) for streaks. Once per id; USDC buy (no retro stock)."
+    },
+    {
+      "wallet": "0xa0bb596d6d2b2b292630b867e9af682579d4582c",
+      "usd": 4.0,
+      "id": "streak-boost-2026-09-04-a0bb59",
+      "$note": "2026-09-04 (Sarthak): streak boost +4, same rate as the other 5 active wallets (traded $337 Hence-routed on 09-03 19:33Z, missed in the first pass)."
     }
   ],
   "blanketGrants": [
