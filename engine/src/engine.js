@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { rollStreakBox, boxFor } from './streakBox.js';
-import { dailyStatus, attrs, shouldEmit, statusKey, tradeAttrs, shouldIdentifyOnTrade, winTransition, winId } from './lifecycle.js';
+import { dailyStatus, attrs, shouldEmit, statusKey, tradeAttrs, shouldIdentifyOnTrade, winTransition, winId, usdOf } from './lifecycle.js';
 import { cioIdentify, cioEnabled } from './cio.js';
 import { readLedger, writeLedger, acquireLock, isHenceFill } from './ledger.js';
 import { foldSpotFills } from './spotFills.js';
@@ -13,7 +13,7 @@ import { baseSepolia, base } from 'viem/chains';
 import { parseTierRows, kickerFor } from './tiers.js';
 import { cfg, net, jackpotAbi, buyerAbi, erc20Abi, erc721Abi, retroEnabled } from './config.js';
 import { track, trackLegs, postGrant, postStatus, commsEnabled } from './comms.js';
-import { filterInventory, allocateRetro, grantBody } from './retro.js';
+import { filterInventory, allocateRetro, grantBody, attributeTransferredWins, transfersFromLedger, winGrantBody, claimTxOf } from './retro.js';
 import { enqueue, enqueueStatus, due, afterAttempt, skipLegs } from './outbox.js';
 import { parseRows, userPackGranted, userCapLeft, userCapRoom, userBoxDates } from './users.js';
 import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak } from './safety.js';
@@ -1046,8 +1046,52 @@ function guard() {
 // the "you won - claim it" reminder workflows. Runs only when Customer.io is
 // configured; the venue API is public and the sweep never touches the wire.
 // Bounded: 8 wallets in flight, 4 minutes wall clock, under the ledger lock.
+// Transferred tickets: the venue files a retro ticket under the POOL wallet for good, so
+// its win never reaches the user's rows. Once per sweep the pool's rows are read, every
+// winner's ownerOf resolved in one multicall, and a ticket a user holds (or claimed -
+// burned - per the ledger's transfer record) is swept as that user's: same win dedupe
+// and events (source:'retro'), same daily status totals, plus a grant upsert so the
+// backend's record carries the win. Chain or venue down = no attribution this sweep.
 const SWEEP_CONCURRENCY = 8;
 const SWEEP_BUDGET_MS = 4 * 60_000;
+const venueTickets = (w) => fetchT(`https://api.megapot.io/v1/wallets/${w}/tickets`);
+const poolAddress = () => {
+  if (cfg.PRIVATE_KEY) { try { return privateKeyToAccount(cfg.PRIVATE_KEY).address.toLowerCase(); } catch { /* no usable key: fall through */ } }
+  return cfg.POOL_WALLET || '';
+};
+const _unknownOwnerLogged = new Set();                 // one log line per ticket per process
+/** wallet -> rows the pool's venue rows hand to that wallet; {} when anything is unavailable.
+ *  Sets throttled() on a 429 like every other venue call. */
+async function transferredWins(s, pub, { throttled, onThrottle }) {
+  const pool = poolAddress();
+  if (!pool || !cfg.TICKET_NFT || throttled()) return {};
+  try {
+    const r = await venueTickets(pool);
+    if (r.status === 429) { onThrottle(); return {}; }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    const rows = Array.isArray(j?.data) ? j.data : [];
+    const winners = rows.filter((t) => t && usdOf(t) > 0 && /^[0-9]+$/.test(String(t.user_ticket_id ?? '')));
+    if (!winners.length) return {};
+    const res = await pub.multicall({ allowFailure: true, contracts: winners.map((t) => ({ address: cfg.TICKET_NFT, abi: erc721Abi, functionName: 'ownerOf', args: [BigInt(t.user_ticket_id)] })) });
+    const owners = Object.fromEntries(winners.map((t, i) => [String(t.user_ticket_id), res[i]?.status === 'success' ? String(res[i].result).toLowerCase() : null]));
+    const byWallet = {};
+    const hits = attributeTransferredWins(winners, owners, eligibleWallets(), {
+      pool, transfers: transfersFromLedger(s),
+      onUnknown: (id, owner, t) => {
+        if (_unknownOwnerLogged.has(id)) return;
+        _unknownOwnerLogged.add(id);
+        console.log(`[megapot] win sweep: pool ticket #${id} (round ${t.round_id ?? '?'}, $${usdOf(t).toFixed(2)}) ${owner === null ? 'is burned and no transfer record names its holder' : `is held by ${owner}, not an enrolled wallet`} - not attributed`);
+      },
+    });
+    for (const { wallet, row } of hits) (byWallet[wallet] ??= []).push(row);
+    if (hits.length) console.log(`[megapot] win sweep: ${hits.length} transferred-ticket win(s) attributed to ${Object.keys(byWallet).length} wallet(s) (${winners.length} winner(s) under the pool)`);
+    return byWallet;
+  } catch (e) {
+    console.log(`[megapot] win sweep: transferred-ticket wins unavailable (${String(e.shortMessage || e.message).split('\n')[0]}) - skipped this sweep`);
+    return {};
+  }
+}
 export async function winSweep() {
   if (!commsEnabled()) return;
   guard();
@@ -1073,16 +1117,19 @@ async function winSweepInner() {
   // tickets the pool wallet minted today across all users - the "23 tickets minted today" line
   const todayKey = new Date().toISOString().slice(0, 10);
   const mintedToday = (s.purchases || []).filter((p) => p.day === todayKey && !p.refunded).reduce((a, p) => a + p.count, 0);
+  // wins the venue still files under the pool wallet for tickets the retro path handed out
+  const transferred = await transferredWins(s, sweepPub, { throttled: () => throttled, onThrottle: () => { throttled = true; } });
   const sweepEmits = [];
   const one = async (w) => {
     const ws = wstate(s, w);
+    const extra = transferred[w] || [];
     // idle wallets (no Hence volume, no tickets, no pack) cannot hold a Hence win:
     // skip the venue call so the per-IP rate limit is spent on wallets that matter
-    if (!((ws.volumeUsd || 0) > 0 || Object.keys(ws.tickets || {}).length || ws.packGranted || (ws.lastStatus?.ticketsInDraw || 0) > 0)) return;
+    if (!((ws.volumeUsd || 0) > 0 || Object.keys(ws.tickets || {}).length || ws.packGranted || (ws.lastStatus?.ticketsInDraw || 0) > 0 || extra.length)) return;
     let rows = [];
     try {
       if (throttled) return;
-      const r = await fetchT(`https://api.megapot.io/v1/wallets/${w}/tickets`);
+      const r = await venueTickets(w);
       if (r.status === 429) { throttled = true; return; }
       const j = await r.json();
       rows = Array.isArray(j?.data) ? j.data : [];
@@ -1093,6 +1140,9 @@ async function winSweepInner() {
     // made on megapot.io, so confirm ownership before telling anyone they have money to
     // claim (the hub does the same before it offers the claim button)
     rows = await markBurnedAsClaimed(sweepPub, rows);
+    // transferred-ticket wins join this wallet's rows (ownership already settled on-chain;
+    // an id the venue also lists under the user is never counted twice)
+    if (extra.length) { const own = new Set(rows.map((t) => String(t?.user_ticket_id ?? ''))); rows = rows.concat(extra.filter((t) => !own.has(String(t.user_ticket_id)))); }
     const st = dailyStatus({ ws, rows, currentRound, priceUsd: s.lastPriceUsd || 1, startMs: cfg.START_MS, poolUsd, mintedToday });
     const emits = [];
     if (shouldEmit(ws.lastStatus, st)) {
@@ -1112,7 +1162,11 @@ async function winSweepInner() {
       // 'pending' blocks a re-queue; the marker flips to notified/claimed only once the
       // outbox delivered the event (2xx)
       ws.cioWins[id] = 'pending';
-      emits.push([w, tr.event, { usd, round: String(t.round_id ?? ''), ticketId: id }, { win: { wallet: w, id, state: tr.state } }]);
+      const retro = t._source === 'retro';
+      emits.push([w, tr.event, { usd, round: String(t.round_id ?? ''), ticketId: id, ...(retro ? { source: 'retro' } : {}) }, { win: { wallet: w, id, state: tr.state } }]);
+      // the backend's grant record (upsert on tokenId) learns the win on the same transition
+      // the event fires on: once unclaimed, once more when the claim burns the ticket
+      if (retro) emits.push([w, '$grant', winGrantBody({ wallet: w, tokenId: id, round: t.round_id, tx: t._tx, ts: t._ts, winningsUsd: usdOf(t), claimed: t.claimed === true, claimedTx: claimTxOf(t), settledAt: Date.now() })]);
     });
     if (emits.length) sweepEmits.push(...emits);
   };

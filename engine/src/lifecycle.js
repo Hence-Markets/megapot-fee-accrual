@@ -5,7 +5,8 @@
 // venue's ticket rows and decides whether to emit.
 import { boxFor } from './streakBox.js';
 
-const usdOf = (t) => {
+/** a venue row's winnings in USD ({amount,decimals} object, else 6dp micro-units) */
+export const usdOf = (t) => {
   const wa = t?.winnings_amount;
   return wa && typeof wa === 'object' ? Number(wa.amount || 0) / 10 ** (wa.decimals ?? 6) : Number(wa || 0) / 1e6;
 };
