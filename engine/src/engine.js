@@ -877,6 +877,17 @@ async function buyInner(only = null, rateLimited = new Set()) {
 // Once per cycle: the venue API lists the pool wallet's tickets; keep the ACTIVE
 // round, unclaimed, no winnings; confirm ownerOf == pool on-chain for each. API or
 // chain down = no retro this cycle (the USDC path continues), never a guess.
+async function markBurnedAsClaimed(pub, rows) {
+  if (!cfg.TICKET_NFT || !Array.isArray(rows)) return rows;
+  const cand = rows.filter((t) => t && t.claimed !== true && Number(t.winnings_amount?.amount ?? t.winnings_amount ?? 0) > 0 && /^[0-9]+$/.test(String(t.user_ticket_id ?? '')));
+  if (!cand.length) return rows;
+  try {
+    const owners = await pub.multicall({ allowFailure: true, contracts: cand.map((t) => ({ address: cfg.TICKET_NFT, abi: erc721Abi, functionName: 'ownerOf', args: [BigInt(t.user_ticket_id)] })) });
+    const burned = new Set(cand.filter((t, i) => owners[i]?.status !== 'success').map((t) => String(t.user_ticket_id)));
+    if (!burned.size) return rows;
+    return rows.map((t) => (burned.has(String(t?.user_ticket_id)) ? { ...t, claimed: true, claimedOnChain: true } : t));
+  } catch { return rows; }                      // read failure: keep the venue's view, retry next sweep
+}
 async function inventory(pub, pool, drawing) {
   const none = { round: null, tokenIds: [] };
   if (!retroEnabled() || !pool || drawing == null) return none;
@@ -1046,6 +1057,7 @@ export async function winSweep() {
 }
 async function winSweepInner() {
   const s = load();
+  const sweepPub = createPublicClient({ chain: cfg.TARGET === 'mainnet' ? base : baseSepolia, transport: rpcTransport(net().rpcs) });
   // per-IP venue rate limit: after a 429 the whole sweep stands down for 10 minutes
   // (status/attrs re-emit next time; nothing is lost) instead of hammering every wallet
   if ((s.venueBackoffUntil || 0) > Date.now()) { console.log(`[megapot] win sweep: venue rate-limited, standing down until ${new Date(s.venueBackoffUntil).toISOString()}`); return; }
@@ -1077,6 +1089,10 @@ async function winSweepInner() {
     } catch { return; }                         // venue hiccup: next cycle retries
     // TICKET LIFECYCLE: daily status event + profile attributes (once a day,
     // and again the moment the draw count or claimable money changes)
+    // a claimed ticket is BURNED on-chain; the venue API's `claimed` flag lags a claim
+    // made on megapot.io, so confirm ownership before telling anyone they have money to
+    // claim (the hub does the same before it offers the claim button)
+    rows = await markBurnedAsClaimed(sweepPub, rows);
     const st = dailyStatus({ ws, rows, currentRound, priceUsd: s.lastPriceUsd || 1, startMs: cfg.START_MS, poolUsd, mintedToday });
     const emits = [];
     if (shouldEmit(ws.lastStatus, st)) {
