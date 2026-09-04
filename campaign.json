@@ -251,6 +251,36 @@
       "usd": 3.0,
       "id": "grant-3-119e56-2026-09-03",
       "$note": "2026-09-03 16:45Z (Sarthak): +3 tickets, before the current draw. Once per id; retro-first then USDC; 5/day per-user cap."
+    },
+    {
+      "wallet": "0x97c494c2fe6f23946e66829e0585eedfa71c81ff",
+      "usd": 4.0,
+      "id": "streak-boost-2026-09-04-97c494",
+      "$note": "2026-09-04 (Sarthak): +20 tickets split evenly (4 each) across the 5 non-team wallets with Hence-routed HL volume on 09-03/09-04 UTC, to ride round 164 (17:00Z) for streaks. Once per id; USDC buy (no retro stock)."
+    },
+    {
+      "wallet": "0x7a08eaa93c05abd6b86bb09b0f565d6fc499ee35",
+      "usd": 4.0,
+      "id": "streak-boost-2026-09-04-7a08ea",
+      "$note": "2026-09-04 (Sarthak): +20 tickets split evenly (4 each) across the 5 non-team wallets with Hence-routed HL volume on 09-03/09-04 UTC, to ride round 164 (17:00Z) for streaks. Once per id; USDC buy (no retro stock)."
+    },
+    {
+      "wallet": "0xcdeb180d67361bd4ec6948a8b4dbc5c03876a34e",
+      "usd": 4.0,
+      "id": "streak-boost-2026-09-04-cdeb18",
+      "$note": "2026-09-04 (Sarthak): +20 tickets split evenly (4 each) across the 5 non-team wallets with Hence-routed HL volume on 09-03/09-04 UTC, to ride round 164 (17:00Z) for streaks. Once per id; USDC buy (no retro stock)."
+    },
+    {
+      "wallet": "0x119e56ba2cd364befc7e9825f77f24a32824131c",
+      "usd": 4.0,
+      "id": "streak-boost-2026-09-04-119e56",
+      "$note": "2026-09-04 (Sarthak): +20 tickets split evenly (4 each) across the 5 non-team wallets with Hence-routed HL volume on 09-03/09-04 UTC, to ride round 164 (17:00Z) for streaks. Once per id; USDC buy (no retro stock)."
+    },
+    {
+      "wallet": "0x51755c1f8c6955fb09685714379bf64db16e2e38",
+      "usd": 4.0,
+      "id": "streak-boost-2026-09-04-51755c",
+      "$note": "2026-09-04 (Sarthak): +20 tickets split evenly (4 each) across the 5 non-team wallets with Hence-routed HL volume on 09-03/09-04 UTC, to ride round 164 (17:00Z) for streaks. Once per id; USDC buy (no retro stock)."
     }
   ],
   "blanketGrants": [
