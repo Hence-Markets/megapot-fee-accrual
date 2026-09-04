@@ -44,3 +44,75 @@ test('grant body is what the hub expects', () => {
   const b = grantBody({ wallet: '0xw', tokenId: 42n, round: 163, tx: '0xtx', ts: 5 });
   assert.deepEqual(b, { wallet: '0xw', tokenId: '42', round: '163', tx: '0xtx', kind: 'retro', ts: 5 });
 });
+
+// ── transferred-ticket wins: the venue files a retro ticket under the pool for good ──
+import { attributeTransferredWins, transfersFromLedger, winGrantBody, claimTxOf } from '../src/retro.js';
+
+const USER = '0x' + 'a'.repeat(40), OTHER = '0x' + 'b'.repeat(40), STRANGER = '0x' + 'c'.repeat(40);
+const win = (id, o = {}) => row(id, { winnings_amount: { amount: '3590000', decimals: 6 }, ...o });   // $3.59 like round 163
+
+test('transferred wins: pool keeps its own, an enrolled holder gets the row re-homed, unknown holders are reported', () => {
+  const rows = [win('36558827'), win('81440122'), win('64941950'), win('11', { winnings_amount: null }), win('12', { winnings_amount: { amount: '0', decimals: 6 } })];
+  const owners = { 36558827: POOL.toUpperCase(), 81440122: USER.toUpperCase(), 64941950: STRANGER, 11: USER, 12: USER };
+  const unknown = [];
+  const out = attributeTransferredWins(rows, owners, [USER, OTHER], { pool: POOL, onUnknown: (id, owner) => unknown.push([id, owner]) });
+  assert.deepEqual(out.map((x) => x.wallet), [USER], 'only the enrolled holder; the pool win stays the pool\'s, no-winnings rows are ignored');
+  const r = out[0].row;
+  assert.equal(r._wallet, USER);
+  assert.equal(r._source, 'retro');
+  assert.equal(r.claimed, false, 'still held on-chain = not claimed');
+  assert.equal(r.user_ticket_id, '81440122');
+  assert.equal(r.wallet, POOL, 'the venue row itself is untouched apart from the re-home fields');
+  assert.deepEqual(unknown, [['64941950', STRANGER]], 'a holder outside the ledger is reported once, not attributed');
+});
+
+test('transferred wins: a burned winner is a claimed one, attributed through the ledger transfer record', () => {
+  const rows = [win('72536798'), win('100575790')];
+  const owners = { 72536798: null, 100575790: null };                 // ownerOf reverted: claimed on megapot.io
+  const transfers = { 72536798: { wallet: USER, tx: '0xtx1', ts: 5 } };
+  const unknown = [];
+  const out = attributeTransferredWins(rows, owners, [USER], { pool: POOL, transfers, onUnknown: (id, owner) => unknown.push([id, owner]) });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].wallet, USER);
+  assert.equal(out[0].row.claimed, true);
+  assert.equal(out[0].row.claimedOnChain, true);
+  assert.equal(out[0].row._tx, '0xtx1');
+  assert.equal(out[0].row._ts, 5);
+  assert.deepEqual(unknown, [['100575790', null]], 'burned with no record: nobody to hand it to');
+});
+
+test('transferred wins: chain beats ledger for a live ticket; venue claimed flag is never downgraded; unread ids skip', () => {
+  const rows = [win('1', { claimed: true }), win('2'), win('3')];
+  const owners = { 1: USER, 2: OTHER };                                 // '3' was not read this sweep
+  const transfers = { 2: { wallet: USER, tx: '0xold' } };                // ledger says USER, chain says OTHER
+  const out = attributeTransferredWins(rows, owners, [USER, OTHER], { pool: POOL, transfers });
+  assert.deepEqual(out.map((x) => [x.wallet, x.row.claimed, x.row._tx]), [[USER, true, undefined], [OTHER, false, undefined]]);
+  assert.deepEqual(attributeTransferredWins(rows, {}, [USER], { pool: POOL }), [], 'nothing resolved = nothing attributed');
+  assert.deepEqual(attributeTransferredWins(rows, undefined, [USER], { pool: POOL }), []);
+});
+
+test('transfer records: retro purchases first (tx/ts), then win markers already on a wallet; refunds do not count', () => {
+  const s = {
+    wallets: { [USER]: { cioWins: { 5: 'notified', 'abc#0': 'claimed' } }, [OTHER]: { cioWins: { 6: 'pending' } } },
+    purchases: [
+      { kind: 'retro', wallet: USER.toUpperCase(), tokenId: '7', tx: '0xt7', ts: 70 },
+      { kind: 'retro', wallet: OTHER, tokenId: '8', tx: '0xt8', ts: 80, refunded: true },
+      { kind: 'usdc', wallet: OTHER, tx: '0xu', ts: 90 },
+      { kind: 'retro', wallet: OTHER, tokenId: 5, tx: '0xt5', ts: 50 },
+    ],
+  };
+  assert.deepEqual(transfersFromLedger(s), { 5: { wallet: OTHER, tx: '0xt5', ts: 50 }, 6: { wallet: OTHER }, 7: { wallet: USER, tx: '0xt7', ts: 70 } });
+  assert.deepEqual(transfersFromLedger({}), {});
+});
+
+test('win grant upsert carries the win on top of the original grant fields', () => {
+  const b = winGrantBody({ wallet: USER, tokenId: 81440122n, round: 163, tx: '0xtx', ts: 5, winningsUsd: 3.5899999, claimed: false, settledAt: 99 });
+  assert.deepEqual(b, { wallet: USER, tokenId: '81440122', round: '163', kind: 'retro', tx: '0xtx', ts: 5, winningsUsd: 3.59, claimed: false, settledAt: 99 });
+  const c = winGrantBody({ wallet: USER, tokenId: '72536798', round: '163', winningsUsd: 3.59, claimed: true, claimedTx: '0xclaim', settledAt: 100 });
+  assert.deepEqual(c, { wallet: USER, tokenId: '72536798', round: '163', kind: 'retro', winningsUsd: 3.59, claimed: true, claimedTx: '0xclaim', settledAt: 100 }, 'tx/ts omitted when the ledger no longer knows the transfer');
+  assert.equal(winGrantBody({ wallet: USER, tokenId: 1, winningsUsd: 1.1234567, claimed: 'yes' }).winningsUsd, 1.123457, '6dp');
+  assert.equal(winGrantBody({ wallet: USER, tokenId: 1, claimed: 'yes' }).claimed, false, 'claimed is a strict boolean');
+  assert.equal(typeof winGrantBody({ wallet: USER, tokenId: 1 }).settledAt, 'number');
+  assert.equal(claimTxOf({ claim_tx_hash: '0xc' }), '0xc');
+  assert.equal(claimTxOf({}), undefined);
+});
