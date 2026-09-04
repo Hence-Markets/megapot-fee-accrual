@@ -52,3 +52,13 @@ test('rotation moves the start offset each cycle; skip streak alerts on the thir
   st = accrueSkipStreak(st.streak, 3); assert.deepEqual(st, { streak: 3, alert: true });
   st = accrueSkipStreak(st.streak, 0); assert.deepEqual(st, { streak: 0, alert: false });
 });
+
+test('buy gas scales with ticket count and covers the measured 10-ticket cost', async () => {
+  const { buyGasFor, GAS_PER_BUY } = await import('../src/safety.js');
+  assert.ok(buyGasFor(10) > 6_406_350n * 12n / 10n, '10 tickets used 6.41M and hit the old 6.5M cap');
+  assert.ok(buyGasFor(1) >= 1_170_000n, '1 ticket peaked at 1.17M');
+  assert.ok(buyGasFor(5) >= 3_974_788n * 11n / 10n, '5 tickets peaked at 3.97M');
+  assert.equal(buyGasFor(0), buyGasFor(1));
+  assert.equal(buyGasFor(50), buyGasFor(10), 'never above the per-call maximum');
+  assert.equal(GAS_PER_BUY, buyGasFor(10), 'the ETH reserve assumes the largest buy');
+});

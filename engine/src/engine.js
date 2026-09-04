@@ -16,7 +16,7 @@ import { track, trackLegs, postGrant, postStatus, commsEnabled } from './comms.j
 import { filterInventory, allocateRetro, grantBody, attributeTransferredWins, transfersFromLedger, winGrantBody, claimTxOf } from './retro.js';
 import { enqueue, enqueueStatus, due, afterAttempt, skipLegs } from './outbox.js';
 import { parseRows, userPackGranted, userCapLeft, userCapRoom, userBoxDates } from './users.js';
-import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak } from './safety.js';
+import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak, buyGasFor } from './safety.js';
 import { blanketGrantsDue } from './grants.js';
 import { fileBucket, backoffMs } from './ratelimit.js';
 import { classifyPurchase, classifyIntent, walletOnHold } from './reconcile.js';
@@ -807,7 +807,7 @@ async function buyInner(only = null, rateLimited = new Set()) {
     const nonce = await pub.getTransactionCount({ address: account.address, blockTag: 'pending' });
     const signed = await signPinned(account, chain.id, {
       to: n.randomBuyer, abi: buyerAbi, functionName: 'buyTickets', args: buyArgs,
-      gas: 6_500_000n,                  // ~5.4M real usage + 20% headroom
+      gas: buyGasFor(count),            // ~0.7M per ticket + fixed cost, with headroom (safety.js)
       maxFeePerGas: maxFee,             // min(2 x base fee, MAX_FEE_GWEI_CEILING)
       maxPriorityFeePerGas: cfg.PRIORITY_FEE_WEI,
       nonce,
