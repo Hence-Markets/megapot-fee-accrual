@@ -1,7 +1,18 @@
 // Operational safety helpers - PURE (no IO) so every rule here has a test.
 // The engine reads balances / fees / feeds and asks these functions what to do.
 
-export const GAS_PER_BUY = 6_500_000n;                // the explicit buy gas limit
+// buy gas scales with the ticket count: the quick-pick path mints one NFT per ticket
+// (~0.7M gas each on top of ~0.2M fixed). Measured on Base 2026-09-02..04: 1 ticket
+// 0.75-1.17M, 4 -> 2.8-2.9M, 5 -> 3.6-4.0M, and a 10-ticket buy ran OUT OF GAS at the old
+// flat 6.5M limit (used 6,406,350 of 6,500,000 - two reverts for 0x7a08, 2026-09-04 14:04Z).
+export const BUY_GAS_BASE = 1_000_000n;
+export const BUY_GAS_PER_TICKET = 900_000n;
+export const MAX_PER_BUY_GAS = 10n;
+export function buyGasFor(count) {
+  const c = BigInt(Math.max(1, Math.min(Number(count) || 1, Number(MAX_PER_BUY_GAS))));
+  return BUY_GAS_BASE + BUY_GAS_PER_TICKET * c;                 // 10 tickets -> 10.0M, 5 -> 5.5M, 1 -> 1.9M
+}
+export const GAS_PER_BUY = buyGasFor(MAX_PER_BUY_GAS);      // the largest buy the engine sends
 export const ALERT_GAP_MS = 60 * 60_000;              // at most one alert of a kind per hour
 
 /** ETH the pool wallet must keep so three buys can still be sent at the fee cap */
