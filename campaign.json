@@ -324,6 +324,37 @@
       "beforeMs": 1788379200000,
       "onlyWithoutSeasonVolume": true,
       "$note": "2026-09-03 (Sarthak): +1 ticket to every enrolled wallet that traded on Hence BEFORE Season 1 (earliest reconciled venue fill < 2026-09-02 20:00 UTC, per the backend feed's firstFillMs) and has no in-window volume - the 12 all-time traders the season grant above does not reach. Once per wallet."
+    },
+    {
+      "id": "email-bonus-draw165-2026-09-05",
+      "usd": 1.0,
+      "requires": "traded-between",
+      "fromMs": 1788617033000,
+      "toMs": 1788627300000,
+      "grantUntilMs": 1788627420000,
+      "wallets": [],
+      "excludeWallets": [
+        "0x024a8cbc7107f44374d85f7a79cce4bd4348989f",
+        "0x3b16aff655a005c3f8e7603953e22d08bfd3f192",
+        "0x3cfdb468ae18b8eba32a56b8935e17a340b42989",
+        "0x4040f7dda4e8bbb34a583403e003ac14b14d868b",
+        "0x527e3e27e603367ca0178c4c4f6a18a943d8cd30",
+        "0x532e46cbccd3f0bb821ba6fc173474c8dcfa1d2b",
+        "0x580e8d091c2c0beaaa355260f72e2bbb52a7ede6",
+        "0x6b2119eb7898683f483a47f98fc4d35852d4d09c",
+        "0x73644a9eb01d848501f56364f4501b4a85d3914f",
+        "0x8273cbd869b1f24f45212256ff1aadbb45e0d935",
+        "0x8e9012744862933cf778b7005444e3739bf116bc",
+        "0xa28d2d57a9d0a0194489e3d99a21de782a785aed",
+        "0xa810741d079af287b674be789f577e2585ea1045",
+        "0xb9428b03aaa13beb63ae94d8224d57ea33ac711c",
+        "0xc1f94710f0c4e5d502f510e32b4e1eb40fe5d1c9",
+        "0xf5355c959d713d05c68a334709e866def3f961e0",
+        "0xf6624aed5bcae96787200326c884b290dec0c3f5",
+        "0xf8caac47a8472779fe0f2d60ab7115dcea680c76",
+        "0xfbf450fe45475aa111f64b9b3e02807ac3a8538a"
+      ],
+      "$note": "Sarthak 2026-09-05: newsletter #5 'S1 - Bonus ticket tonight (draw #165)' sent 14:03:53Z to 93 consented users: +1 ticket for any Hence trade before 16:55Z (5 min before the 17:00Z draw). Cohort = the recipients minus the risk cohort; geo not consulted (feed decides enrolment). Grant stops being evaluated at 16:57Z so nothing mints into the wrong draw."
     }
   ],
   "$multipliers": "DECIDED 2026-09-03: tiers are KICKERS on top of base minting - 2x = +25% credit on qualifying volume, 3x = +50%, 4x = +75%, 5x = +100% (200% of fees back). Tiers unlock on thesis-basket VOLUME (entry $1,000 per the rules doc). The $2,500/$5,000/$10,000 rungs for 3x-5x are proposed defaults pending final sign-off. Tiers activate when basket tracking goes live; base rate applies until then.",

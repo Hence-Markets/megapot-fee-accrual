@@ -43,3 +43,20 @@ test('venue-traded cohort: pre-season traders from the feed, not stacking on sea
   fresh.opsGrants['pre-season'] = { usd: 1 };
   assert.equal(blanketGrantsDue(fresh, P, { firstFillMs: 1710000000000 }).length, 0, 'once');
 });
+
+
+/* ---- promo window: "trade tonight before the draw -> +1" ---- */
+const P = [{ id: 'email-tonight', usd: 1, requires: 'traded-between', fromMs: 1000, toMs: 2000, grantUntilMs: 2500,
+  wallets: ['0xAAA'], excludeWallets: ['0xBAD'] }];
+test('promo window: cohort wallet with a fill inside the window gets +1 once; outside, excluded, or late does not', () => {
+  const fresh = () => ({ volumeUsd: 100, opsGrants: {}, lastFillMs: 1500 });
+  assert.equal(blanketGrantsDue(fresh(), P, { wallet: '0xaaa', nowMs: 1600 }).length, 1);
+  assert.equal(blanketGrantsDue({ ...fresh(), lastFillMs: 900 }, P, { wallet: '0xaaa', nowMs: 1600 }).length, 0, 'fill before the window');
+  assert.equal(blanketGrantsDue({ ...fresh(), lastFillMs: 3000, tradedWindow: { 'email-tonight': true } }, P, { wallet: '0xaaa', nowMs: 1600 }).length, 1, 'stamped fill counts even after later fills');
+  assert.equal(blanketGrantsDue({ ...fresh(), lastFillMs: 3000 }, P, { wallet: '0xaaa', nowMs: 1600 }).length, 0, 'only a post-window fill, no stamp');
+  assert.equal(blanketGrantsDue(fresh(), P, { wallet: '0xbbb', nowMs: 1600 }).length, 0, 'not in the cohort');
+  assert.equal(blanketGrantsDue(fresh(), [{ ...P[0], wallets: ['0xAAA', '0xBAD'] }], { wallet: '0xbad', nowMs: 1600 }).length, 0, 'risk cohort excluded');
+  assert.equal(blanketGrantsDue(fresh(), P, { wallet: '0xaaa', nowMs: 2600 }).length, 0, 'past grantUntilMs: too late to mint for the draw');
+  const ws = fresh(); ws.opsGrants['email-tonight'] = { usd: 1 };
+  assert.equal(blanketGrantsDue(ws, P, { wallet: '0xaaa', nowMs: 1600 }).length, 0, 'once');
+});
