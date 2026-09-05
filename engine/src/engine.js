@@ -390,7 +390,13 @@ async function accrueInner(only = null) {
       const startDay = new Date(cfg.START_MS || 0).toISOString().slice(0, 10);
       const minDay = Number(sb.minDayUsd || 0);
       const newDays = Object.entries(ws.days).filter(([d, v]) => v >= Math.max(minDay, 1e-9) && d >= startDay && !boxed.has(d)).map(([d]) => d).sort();
+      // risk cohort: a box only ROLLS once the fees already earned cover another free ticket
+      // (packs + everything received so far, 1.1x). Held days stay un-boxed and roll later,
+      // so no season pool slot is reserved and no "won" event fires for a ticket that will
+      // not pay. This is the daily streak logic for the cohort: earn first, then be paid.
+      let roiRoom = risk ? roiRoomTickets(ws, risk, s.lastPriceUsd || 1) : Infinity;
       for (const d of newDays) {
+        if (risk && roiRoom < 1) { console.log(`${w} streak box (${d}) ROI-HELD: rolls once fees cover the next free ticket (${roiLine(ws, risk)})`); break; }
         const dayN = boxed.size + 1;
         const poolLeft = (sb.poolTickets || Infinity) - (s.streakBoxPoolUsed || 0);
         const roll = rollStreakBox(dayN, () => crypto.randomInt(1_000_000) / 1_000_000, matrix);
@@ -403,6 +409,7 @@ async function accrueInner(only = null) {
         if (grant > 0) {
           ws.streakTicketsPending = (ws.streakTicketsPending || 0) + grant;
           s.streakBoxPoolUsed = (s.streakBoxPoolUsed || 0) + grant;
+          if (risk) roiRoom -= grant;
         }
         console.log(`${w} streak box day ${dayN} (${d}): ${won ? `WON +${grant}` : poolExhausted ? 'empty (pool exhausted)' : 'empty'} (p ${roll.p}, size ${roll.size}, pool ${s.streakBoxPoolUsed || 0}/${sb.poolTickets})`);
         const nb = boxFor(dayN + 1, matrix);
@@ -424,6 +431,7 @@ async function accrueInner(only = null) {
       const g = sb ? {} : ((ws.streakGrants ??= {})[weekKey] ??= {});
       for (const cp of (sb || !grantsOpen ? [] : (st.checkpoints || []))) {
         const key = 'd' + cp.day;
+        if (risk && !g[key] && roiRoomTickets(ws, risk, s.lastPriceUsd || 1) < cp.tickets) { console.log(`${w} streak d${cp.day} grant ROI-HELD (${roiLine(ws, risk)})`); continue; }
         const poolLeft = (st.poolTickets || Infinity) - (s.streakPoolUsed || 0);
         if (!g[key] && daysCount >= cp.day && cum >= cp.minCumulativeUsd && poolLeft >= cp.tickets) {
           ws.streakTicketsPending = (ws.streakTicketsPending || 0) + cp.tickets;
