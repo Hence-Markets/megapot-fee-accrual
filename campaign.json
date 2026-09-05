@@ -295,6 +295,18 @@
       "usd": 3.0,
       "id": "grant-3-85c22f-2026-09-04",
       "$note": "2026-09-04 17:00Z (Sarthak): +3 tickets, requested before the draw. Once per id; retro-first then USDC; 15/day per-user cap."
+    },
+    {
+      "id": "delay-de-0x585a-2026-09-05",
+      "wallet": "0x585a946834cb9608b529c552a1d982d8ad54e82a",
+      "usd": 2.0,
+      "note": "+2 tickets: region-gated by mistake 2026-09-04 17:12 -> cleared 2026-09-05 13:26; sorry for the delay (Sarthak)"
+    },
+    {
+      "id": "welcome-us-0x7425-2026-09-05",
+      "wallet": "0x74258d399c725e41b95adab693a6b21f901b4535",
+      "usd": 1.0,
+      "note": "+1 ticket: first US trader after the region gate opened (Sarthak)"
     }
   ],
   "blanketGrants": [
