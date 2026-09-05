@@ -1,5 +1,5 @@
 {
-  "$doc": "Campaign controller \u2014 the single spec sheet ops edits to retune the program. The engine and frontend both read this file. Env vars still hold the SECURITY gates (MEGAPOT_ACTIVE, MEGAPOT_WHITELIST, keys) \u2014 this file holds the PRODUCT parameters.",
+  "$doc": "Campaign controller — the single spec sheet ops edits to retune the program. The engine and frontend both read this file. Env vars still hold the SECURITY gates (MEGAPOT_ACTIVE, MEGAPOT_WHITELIST, keys) — this file holds the PRODUCT parameters.",
   "campaign": {
     "id": "megahence-rewards-s1",
     "name": "MegaHence Rewards - Season 1",
@@ -16,17 +16,17 @@
       "xyz-equities",
       "spot"
     ],
-    "$products": "product suites this campaign covers: perps (native HL coins) | xyz-equities (coins prefixed xyz:) | spot (Robinhood Chain swaps via the hence backend's relay-spot feed \u2014 SPOT_FILLS_URL; fills carry Hence's 25bps app fee as builderFee and credit that EXACT fee, not a bps-of-notional recompute, because our own receipts ledger records it per fill) | baskets (fills recorded via thesis executions \u2014 needs app stitch) | predictions (not yet supported)",
+    "$products": "product suites this campaign covers: perps (native HL coins) | xyz-equities (coins prefixed xyz:) | spot (Robinhood Chain swaps via the hence backend's relay-spot feed — SPOT_FILLS_URL; fills carry Hence's 25bps app fee as builderFee and credit that EXACT fee, not a bps-of-notional recompute, because our own receipts ledger records it per fill) | baskets (fills recorded via thesis executions — needs app stitch) | predictions (not yet supported)",
     "symbols": [],
     "$symbols": "empty = ALL symbols on the enabled products qualify (Season 1 rule: every product on Hence). Add tickers to restrict.",
     "excludeZeroFeePairs": [],
-    "$excludeZeroFeePairs": "symbols currently running zero-fee promos (no fee revenue \u2192 no credit), e.g. the xyz rebate campaign list"
+    "$excludeZeroFeePairs": "symbols currently running zero-fee promos (no fee revenue → no credit), e.g. the xyz rebate campaign list"
   },
   "economics": {
     "feeBps": 4.0,
     "rolloverShare": 1.0,
     "$note": "4.0bps = Hence's LIVE builder-fee take (verified /api/config hlBuilderFee=40 tenths). Charged on routed orders regardless of maker/taker, so accrual is identical on maker flow. Ticket conversion always uses Megapot's live ticketPrice().",
-    "$spotNote": "Relay-spot fills credit their EXACT recorded fee (builderFee on the feed row = the 25bps app fee our own ledger stored for that swap) times rolloverShare \u2014 no spotFeeBps knob exists on purpose: a bps recompute could drift from what was actually charged, and unlike HL (where the engine reads the venue's feed) the spot fee is first-party ground truth."
+    "$spotNote": "Relay-spot fills credit their EXACT recorded fee (builderFee on the feed row = the 25bps app fee our own ledger stored for that swap) times rolloverShare — no spotFeeBps knob exists on purpose: a bps recompute could drift from what was actually charged, and unlike HL (where the engine reads the venue's feed) the spot fee is first-party ground truth."
   },
   "multipliers": [
     {
@@ -97,7 +97,7 @@
     ]
   },
   "terms": {
-    "title": "MegaHence Rewards \u00b7 Season 1 rules",
+    "title": "MegaHence Rewards · Season 1 rules",
     "steps": [
       "Season 1 runs from September 2, 2026 (20:00 UTC) to September 16, 2026 (22:00 UTC). Trades outside the window do not count.",
       "Sign in to Hence with your wallet. Linking an email is optional, but it is where draw results and win alerts go.",
@@ -148,14 +148,15 @@
       "Zero-fee promotional pairs are excluded from earning while their promotion is active.",
       "Email is optional. Draw results and win alerts go to your linked email. Marketing consent is recorded either way; you can decline and still take part fully.",
       "Multiplier tiers (2x to 5x) activate when basket tracking goes live this season. Until then the base rate applies, and tier rungs may be retuned.",
-      "Not available where Megapot's terms prohibit participation, including the United States and the United Kingdom. Parameters may be retuned between seasons."
+      "Not available where Megapot's terms prohibit participation, including the United States and the United Kingdom. Parameters may be retuned between seasons.",
+      "One person, one account. Hence may withhold, void or reclaim campaign rewards from accounts it reasonably believes are coordinated, automated, duplicated or created to farm rewards, and may apply stricter qualification thresholds to such accounts. Decisions are final."
     ],
     "assetTable": {
       "note": "Volume shown mints ONE ticket at the base 1x tier (0.04% of volume at the $1 live ticket price). Maker or taker earn the same. Every product on Hence qualifies. Higher tiers cut the volume needed by their factor.",
       "categories": [
         {
           "key": "hl-perps",
-          "label": "HL perps \u00b7 all pairs",
+          "label": "HL perps · all pairs",
           "symbols": [
             "BTC",
             "ETH",
@@ -167,7 +168,7 @@
         },
         {
           "key": "xyz-equities",
-          "label": "xyz equities \u00b7 all pairs",
+          "label": "xyz equities · all pairs",
           "symbols": [
             "NVDA",
             "TSLA",
@@ -407,5 +408,30 @@
     "enabled": true,
     "ticketNft": "0x48ffe35abb9f4780a4f1775c2ce1c46185b366e4",
     "$note": "Megapot mints 12 tickets/day to the pool wallet; the engine transfers pool-held tickets of the ACTIVE round to users before buying with USDC"
+  },
+  "riskCohort": {
+    "$note": "ROI-positive treatment for suspected farm accounts (2026-09-04 HK cluster: 15 accounts created within 40 min, identical $252 trades). Applies to listed wallets AND any wallet whose feed country is listed. First mint needs firstTradeMinUsd of qualifying volume (not the normal minTradeUsd). Free tickets (streak boxes, streak checkpoints, blanket grants) only convert once Hence's fees earned from the wallet cover roiMultiple x every free ticket it has already received (packs included) - so the cohort pays for itself before it is paid.",
+    "wallets": [
+      "0x3b16aff655a005c3f8e7603953e22d08bfd3f192",
+      "0x3cfdb468ae18b8eba32a56b8935e17a340b42989",
+      "0x4040f7dda4e8bbb34a583403e003ac14b14d868b",
+      "0x527e3e27e603367ca0178c4c4f6a18a943d8cd30",
+      "0x532e46cbccd3f0bb821ba6fc173474c8dcfa1d2b",
+      "0x580e8d091c2c0beaaa355260f72e2bbb52a7ede6",
+      "0x73644a9eb01d848501f56364f4501b4a85d3914f",
+      "0x8e9012744862933cf778b7005444e3739bf116bc",
+      "0xa28d2d57a9d0a0194489e3d99a21de782a785aed",
+      "0xa810741d079af287b674be789f577e2585ea1045",
+      "0xb9428b03aaa13beb63ae94d8224d57ea33ac711c",
+      "0xc1f94710f0c4e5d502f510e32b4e1eb40fe5d1c9",
+      "0xf5355c959d713d05c68a334709e866def3f961e0",
+      "0xf6624aed5bcae96787200326c884b290dec0c3f5",
+      "0xf8caac47a8472779fe0f2d60ab7115dcea680c76"
+    ],
+    "countries": [
+      "HK"
+    ],
+    "firstTradeMinUsd": 2000,
+    "roiMultiple": 1.1
   }
 }

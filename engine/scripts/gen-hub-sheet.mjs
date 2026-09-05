@@ -63,6 +63,7 @@ if (out.marketingConsentDefault === undefined) throw new Error('campaign.json: h
 if (out.engineCycleS === undefined) throw new Error('campaign.json: hub.engineCycleS is required');
 out.terms = need(c, 'terms', 'root');
 if (c.retro) out.retro = c.retro;
+if (c.riskCohort) out.riskCohort = c.riskCohort;   // hub shows the cohort's first-mint bar to the wallets it applies to
 
 // ----- emit ---------------------------------------------------------------------------------
 const iso = (ms) => new Date(ms).toISOString().replace('.000Z', 'Z');
