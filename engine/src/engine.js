@@ -18,6 +18,7 @@ import { enqueue, enqueueStatus, due, afterAttempt, skipLegs } from './outbox.js
 import { parseRows, userPackGranted, userCapLeft, userCapRoom, userBoxDates } from './users.js';
 import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak, buyGasFor } from './safety.js';
 import { blanketGrantsDue } from './grants.js';
+import { riskRulesFor, roiRoomTickets, noteFree, roiLine, seedFreeIfNew } from './risk.js';
 import { fileBucket, backoffMs } from './ratelimit.js';
 import { classifyPurchase, classifyIntent, walletOnHold } from './reconcile.js';
 import { mapLimit } from './pool.js';
@@ -98,6 +99,8 @@ export function eligibleWallets() {
 // whitelist test cohorts (emailBound null) skip the email gate
 const emailBound = (w) => (_feed && _feed.emailBound != null ? !!_feed.emailBound[w] : true);
 const firstFillOf = (w) => Number(_feed?.firstFill?.[w]) || 0;   // from the backend feed; 0 = never reconciled
+const countryOf = (w) => _feed?.country?.[w] || null;              // feed country; null = unknown / whitelist mode
+const riskOf = (w) => riskRulesFor(cfg.RISK, w, countryOf(w));
 // the wallet -> user map lives on the ledger so caps stay per user even when the feed is
 // cached or a wallet later drops off it
 const syncUsers = (s) => { for (const [w, u] of Object.entries(_feed?.users || {})) (s.users ??= {})[w] = u; };
@@ -292,7 +295,11 @@ async function accrueInner(only = null) {
     if (needsRewind(ws, cfg.START_MS)) ws.lastFillMs = cfg.START_MS;
     const fs_ = await fills(w, ws.lastFillMs);
     let vol = 0, activationFill = null, boostedVol = 0;
-    const ftMin = cfg.FIRST_TRADE ? (cfg.FIRST_TRADE.minTradeUsd || 0) : Infinity;
+    const risk = riskOf(w);
+    // risk cohort: the first mint needs the cohort's (much higher) qualifying volume
+    const ftMinUsd = cfg.FIRST_TRADE ? (risk?.firstTradeMinUsd || cfg.FIRST_TRADE.minTradeUsd || 0) : 0;
+    const ftMin = cfg.FIRST_TRADE ? ftMinUsd : Infinity;
+    if (risk && !ws.riskNoted) { ws.riskNoted = true; const seeded = seedFreeIfNew(ws, cfg.RISK, w); console.log(`${w} risk cohort (${risk.via}): first mint at $${ftMinUsd}, free tickets ROI-gated at ${risk.roiMultiple}x${seeded ? ` (ledger seeded: already received $${ws.roiFreeUsd.toFixed(2)} free)` : ''}`); }
     const tier = tierOf(w);
     for (const f of fs_) {
       if (!qualifies(f.coin, f.time)) continue;
@@ -333,10 +340,10 @@ async function accrueInner(only = null) {
       if (!granted && activationFill != null) ws.packQualifiedUsd = Math.max(ws.packQualifiedUsd || 0, activationFill);
       // TnC: a single $100 fill OR $100 of COMBINED in-window volume qualifies -
       // small traders reach the pack by adding up, not only by one big trade.
-      if (!granted && ((ws.volumeUsd || 0) + vol) >= (ft.minTradeUsd || 0)) {
+      if (!granted && ((ws.volumeUsd || 0) + vol) >= ftMinUsd) {
         ws.packQualifiedUsd = Math.max(ws.packQualifiedUsd || 0, (ws.volumeUsd || 0) + vol);
       }
-      if (grantsOpen && !granted && (ws.packQualifiedUsd || 0) >= (ft.minTradeUsd || 0) && (ws.packQualifiedUsd || 0) > 0) {
+      if (grantsOpen && !granted && (ws.packQualifiedUsd || 0) >= ftMinUsd && (ws.packQualifiedUsd || 0) > 0) {
         if (cfg.PACK_REQUIRES_EMAIL && !emailBound(w)) {
           console.log(`${w} activation pack HELD: qualifying trade $${ws.packQualifiedUsd.toFixed(2)} awaits a bound email`);
           if (!ws.packHeldNotified) { ws.packHeldNotified = true; emits.push([w, 'megapot_pack_held', { qualifyingUsd: Math.round(ws.packQualifiedUsd), reason: 'email' }]); }
@@ -383,7 +390,13 @@ async function accrueInner(only = null) {
       const startDay = new Date(cfg.START_MS || 0).toISOString().slice(0, 10);
       const minDay = Number(sb.minDayUsd || 0);
       const newDays = Object.entries(ws.days).filter(([d, v]) => v >= Math.max(minDay, 1e-9) && d >= startDay && !boxed.has(d)).map(([d]) => d).sort();
+      // risk cohort: a box only ROLLS once the fees already earned cover another free ticket
+      // (packs + everything received so far, 1.1x). Held days stay un-boxed and roll later,
+      // so no season pool slot is reserved and no "won" event fires for a ticket that will
+      // not pay. This is the daily streak logic for the cohort: earn first, then be paid.
+      let roiRoom = risk ? roiRoomTickets(ws, risk, s.lastPriceUsd || 1) : Infinity;
       for (const d of newDays) {
+        if (risk && roiRoom < 1) { console.log(`${w} streak box (${d}) ROI-HELD: rolls once fees cover the next free ticket (${roiLine(ws, risk)})`); break; }
         const dayN = boxed.size + 1;
         const poolLeft = (sb.poolTickets || Infinity) - (s.streakBoxPoolUsed || 0);
         const roll = rollStreakBox(dayN, () => crypto.randomInt(1_000_000) / 1_000_000, matrix);
@@ -396,6 +409,7 @@ async function accrueInner(only = null) {
         if (grant > 0) {
           ws.streakTicketsPending = (ws.streakTicketsPending || 0) + grant;
           s.streakBoxPoolUsed = (s.streakBoxPoolUsed || 0) + grant;
+          if (risk) roiRoom -= grant;
         }
         console.log(`${w} streak box day ${dayN} (${d}): ${won ? `WON +${grant}` : poolExhausted ? 'empty (pool exhausted)' : 'empty'} (p ${roll.p}, size ${roll.size}, pool ${s.streakBoxPoolUsed || 0}/${sb.poolTickets})`);
         const nb = boxFor(dayN + 1, matrix);
@@ -417,6 +431,7 @@ async function accrueInner(only = null) {
       const g = sb ? {} : ((ws.streakGrants ??= {})[weekKey] ??= {});
       for (const cp of (sb || !grantsOpen ? [] : (st.checkpoints || []))) {
         const key = 'd' + cp.day;
+        if (risk && !g[key] && roiRoomTickets(ws, risk, s.lastPriceUsd || 1) < cp.tickets) { console.log(`${w} streak d${cp.day} grant ROI-HELD (${roiLine(ws, risk)})`); continue; }
         const poolLeft = (st.poolTickets || Infinity) - (s.streakPoolUsed || 0);
         if (!g[key] && daysCount >= cp.day && cum >= cp.minCumulativeUsd && poolLeft >= cp.tickets) {
           ws.streakTicketsPending = (ws.streakTicketsPending || 0) + cp.tickets;
@@ -451,6 +466,11 @@ async function accrueInner(only = null) {
     }
     // blanket grants: campaign-wide one-time credit (e.g. "+2 to everyone who traded by <date>")
     for (const g of blanketGrantsDue(ws, cfg.BLANKET_GRANTS, { vol, today: new Date().toISOString().slice(0, 10), firstFillMs: firstFillOf(w) })) {
+      if (risk) {
+        const priceUsd = s.lastPriceUsd || 1;
+        if (roiRoomTickets(ws, risk, priceUsd) * priceUsd < (Number(g.usd) || 0)) { console.log(`${w} blanket grant '${g.id}' ROI-HELD (${roiLine(ws, risk)})`); continue; }
+        noteFree(ws, (Number(g.usd) || 0) / priceUsd, priceUsd);
+      }
       ws.creditUsdc += Number(g.usd) || 0;
       (ws.opsGrants ??= {})[g.id] = { usd: g.usd, at: Date.now(), blanket: true };
       console.log(`${w} blanket grant '${g.id}': +$${Number(g.usd).toFixed(2)} credit`);
@@ -473,6 +493,8 @@ async function accrueInner(only = null) {
     }
     ws.volumeUsd += vol;
     ws.creditUsdc += credit;
+    // fees Hence earned from this wallet (HL at FEE_BPS, spot exact) - the ROI ledger the risk cohort is paid against
+    ws.feesUsd = (ws.feesUsd || 0) + hlVol * (cfg.FEE_BPS / 10_000) + (cfg.ROLLOVER ? spotCredit / cfg.ROLLOVER : spotCredit);
     ws.rebatedUsd = (ws.rebatedUsd || 0) + credit;
     console.log(`${w} +$${vol.toFixed(2)} qualifying volume → +$${credit.toFixed(4)} credit (total $${ws.creditUsdc.toFixed(4)})`);
     // CRM anchor: one trade event per cycle with volume (the "user trades"
@@ -708,10 +730,19 @@ async function buyInner(only = null, rateLimited = new Set()) {
    try {
     const ws = wstate(s, w);
     if (ws.streakTicketsPending > 0) {
+      // risk cohort: streak tickets release only as fees earned cover them (ROI-positive)
+      const risk = riskOf(w);
+      let want = ws.streakTicketsPending;
+      if (risk) {
+        const room = roiRoomTickets(ws, risk, priceUsd);
+        if (room < want) console.log(`${w} streak grant ROI-HELD: ${want - room} of ${want} ticket(s) wait for fees (${roiLine(ws, risk)})`);
+        want = Math.min(want, room);
+      }
       // 30/day season-wide gate on streak-box tickets (FCFS); the rest wait
-      const conv = takeFromDailyGate(s, 'streakBox', cfg.STREAK_BOX ? Number(cfg.STREAK_BOX.dailyCap || 0) : 0, day, ws.streakTicketsPending);
+      const conv = want > 0 ? takeFromDailyGate(s, 'streakBox', cfg.STREAK_BOX ? Number(cfg.STREAK_BOX.dailyCap || 0) : 0, day, want) : 0;
       if (conv > 0) {
         ws.creditUsdc += conv * priceUsd;
+        noteFree(ws, conv, priceUsd);
         ws.streakTicketsPending -= conv;
         console.log(`${w} streak grant credited: ${conv} ticket(s) at $${priceUsd} (day gate ${s.gates?.streakBox?.used}/${cfg.STREAK_BOX?.dailyCap || '-'})`);
       }
@@ -728,6 +759,7 @@ async function buyInner(only = null, rateLimited = new Set()) {
         // a pack split across days by the gate accumulates - the record is the whole pack
         const prev = ws.firstTradeBonus || { tickets: 0 };
         ws.firstTradeBonus = { tickets: (prev.tickets || 0) + conv, priceUsd, grantedMs: Date.now(), firstGrantedMs: prev.firstGrantedMs || prev.grantedMs || Date.now() };
+        noteFree(ws, conv, priceUsd);       // the pack is free value the ROI ledger must earn back
         ws.bonusTicketsPending -= conv;
         console.log(`${w} first-trade bonus credited: ${conv} ticket(s) (day gate ${s.ftMintUsed}/${ftCap || '-'})`);
       }

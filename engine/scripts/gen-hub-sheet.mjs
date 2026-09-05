@@ -63,6 +63,9 @@ if (out.marketingConsentDefault === undefined) throw new Error('campaign.json: h
 if (out.engineCycleS === undefined) throw new Error('campaign.json: hub.engineCycleS is required');
 out.terms = need(c, 'terms', 'root');
 if (c.retro) out.retro = c.retro;
+// risk cohort: the hub only needs the REGION rule + bar to show the right first-mint target; the
+// wallet list and ledger seed are engine-only (never in the client bundle)
+if (c.riskCohort) out.riskCohort = { countries: c.riskCohort.countries || [], firstTradeMinUsd: c.riskCohort.firstTradeMinUsd, roiMultiple: c.riskCohort.roiMultiple };
 
 // ----- emit ---------------------------------------------------------------------------------
 const iso = (ms) => new Date(ms).toISOString().replace('.000Z', 'Z');

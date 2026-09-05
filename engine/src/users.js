@@ -6,7 +6,7 @@
 
 /** feed rows -> { wallets, emailBound, users } (users: wallet -> user key) */
 export function parseRows(rows) {
-  const wallets = [], emailBound = {}, users = {}, firstFill = {};
+  const wallets = [], emailBound = {}, users = {}, firstFill = {}, country = {};
   for (const row of rows || []) {
     const obj = typeof row === 'object' && row !== null;
     const w = String(obj ? row.wallet : row).trim().toLowerCase();
@@ -18,8 +18,10 @@ export function parseRows(rows) {
     if (u) users[w] = u;
     const ff = obj ? Number(row.firstFillMs ?? row.first_fill_ms) : 0;   // earliest reconciled venue fill, any time
     if (ff > 0) firstFill[w] = ff;
+    const cc = obj ? String(row.country || '').toUpperCase() : '';
+    if (/^[A-Z]{2}$/.test(cc)) country[w] = cc;      // feed country (ZZ = unknown) - risk cohort rules key on it
   }
-  return { wallets, emailBound, users, firstFill };
+  return { wallets, emailBound, users, firstFill, country };
 }
 
 /** every wallet the ledger knows for `w`'s user (always includes `w`) */

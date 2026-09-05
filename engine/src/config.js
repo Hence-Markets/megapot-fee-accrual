@@ -142,6 +142,7 @@ export const cfg = {
   // minting stops this long after END_MS - queued tickets still drain, nothing new accrues
   BUY_GRACE_MS: 3 * 86400000,
   OPS_GRANTS: campaign.opsGrants || [],
+  RISK: campaign.riskCohort || null,                  // ROI-positive rules for suspected farm accounts (risk.js)
   BLANKET_GRANTS: campaign.blanketGrants || [],       // one-time credit for every wallet meeting a campaign-wide condition (grants.js)               // one-time config-driven credit grants (compensations, smoke tests)
 
   // buy-tx fee ceiling: raise via MAX_FEE_GWEI when Base runs hot - buys stall
