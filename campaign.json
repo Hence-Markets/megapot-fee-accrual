@@ -425,13 +425,16 @@
   "riskCohort": {
     "$note": "ROI-positive treatment for suspected farm accounts (2026-09-04 HK cluster: 15 accounts created within 40 min, identical $252 trades). Applies to listed wallets AND any wallet whose feed country is listed. First mint needs firstTradeMinUsd of qualifying volume (not the normal minTradeUsd). Free tickets (streak boxes, streak checkpoints, blanket grants) only convert once Hence's fees earned from the wallet cover roiMultiple x every free ticket it has already received (packs included) - so the cohort pays for itself before it is paid.",
     "wallets": [
+      "0x024a8cbc7107f44374d85f7a79cce4bd4348989f",
       "0x3b16aff655a005c3f8e7603953e22d08bfd3f192",
       "0x3cfdb468ae18b8eba32a56b8935e17a340b42989",
       "0x4040f7dda4e8bbb34a583403e003ac14b14d868b",
       "0x527e3e27e603367ca0178c4c4f6a18a943d8cd30",
       "0x532e46cbccd3f0bb821ba6fc173474c8dcfa1d2b",
       "0x580e8d091c2c0beaaa355260f72e2bbb52a7ede6",
+      "0x6b2119eb7898683f483a47f98fc4d35852d4d09c",
       "0x73644a9eb01d848501f56364f4501b4a85d3914f",
+      "0x8273cbd869b1f24f45212256ff1aadbb45e0d935",
       "0x8e9012744862933cf778b7005444e3739bf116bc",
       "0xa28d2d57a9d0a0194489e3d99a21de782a785aed",
       "0xa810741d079af287b674be789f577e2585ea1045",
@@ -439,7 +442,8 @@
       "0xc1f94710f0c4e5d502f510e32b4e1eb40fe5d1c9",
       "0xf5355c959d713d05c68a334709e866def3f961e0",
       "0xf6624aed5bcae96787200326c884b290dec0c3f5",
-      "0xf8caac47a8472779fe0f2d60ab7115dcea680c76"
+      "0xf8caac47a8472779fe0f2d60ab7115dcea680c76",
+      "0xfbf450fe45475aa111f64b9b3e02807ac3a8538a"
     ],
     "countries": [
       "HK"
@@ -463,6 +467,7 @@
       "0x527e3e27e603367ca0178c4c4f6a18a943d8cd30": 1.0,
       "0x580e8d091c2c0beaaa355260f72e2bbb52a7ede6": 1.0,
       "0x8e9012744862933cf778b7005444e3739bf116bc": 1.0
-    }
+    },
+    "$wave2": "2026-09-04 20:28:02 UTC: 4 more accounts created the same second, HK, 4-5 trades of ~$500 each, holding 8-10 externally-bought Megapot tickets - same operator. Listed so the cohort rules follow them even outside HK."
   }
 }
