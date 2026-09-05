@@ -432,6 +432,24 @@
       "HK"
     ],
     "firstTradeMinUsd": 2000,
-    "roiMultiple": 1.1
+    "roiMultiple": 1.1,
+    "$seed": "seedFreeUsd: free value a listed wallet ALREADY received before the ledger existed (2026-09-04 draw #165 tickets at $1) - counted so the ROI gate covers it too",
+    "seedFreeUsd": {
+      "0x532e46cbccd3f0bb821ba6fc173474c8dcfa1d2b": 6.0,
+      "0xa810741d079af287b674be789f577e2585ea1045": 3.0,
+      "0xf8caac47a8472779fe0f2d60ab7115dcea680c76": 3.0,
+      "0xf6624aed5bcae96787200326c884b290dec0c3f5": 3.0,
+      "0x3b16aff655a005c3f8e7603953e22d08bfd3f192": 2.0,
+      "0xa28d2d57a9d0a0194489e3d99a21de782a785aed": 2.0,
+      "0xf5355c959d713d05c68a334709e866def3f961e0": 2.0,
+      "0x4040f7dda4e8bbb34a583403e003ac14b14d868b": 2.0,
+      "0xc1f94710f0c4e5d502f510e32b4e1eb40fe5d1c9": 1.0,
+      "0x3cfdb468ae18b8eba32a56b8935e17a340b42989": 1.0,
+      "0x73644a9eb01d848501f56364f4501b4a85d3914f": 1.0,
+      "0xb9428b03aaa13beb63ae94d8224d57ea33ac711c": 1.0,
+      "0x527e3e27e603367ca0178c4c4f6a18a943d8cd30": 1.0,
+      "0x580e8d091c2c0beaaa355260f72e2bbb52a7ede6": 1.0,
+      "0x8e9012744862933cf778b7005444e3739bf116bc": 1.0
+    }
   }
 }

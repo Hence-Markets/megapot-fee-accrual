@@ -18,7 +18,7 @@ import { enqueue, enqueueStatus, due, afterAttempt, skipLegs } from './outbox.js
 import { parseRows, userPackGranted, userCapLeft, userCapRoom, userBoxDates } from './users.js';
 import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak, buyGasFor } from './safety.js';
 import { blanketGrantsDue } from './grants.js';
-import { riskRulesFor, roiRoomTickets, noteFree, roiLine } from './risk.js';
+import { riskRulesFor, roiRoomTickets, noteFree, roiLine, seedFreeIfNew } from './risk.js';
 import { fileBucket, backoffMs } from './ratelimit.js';
 import { classifyPurchase, classifyIntent, walletOnHold } from './reconcile.js';
 import { mapLimit } from './pool.js';
@@ -299,7 +299,7 @@ async function accrueInner(only = null) {
     // risk cohort: the first mint needs the cohort's (much higher) qualifying volume
     const ftMinUsd = cfg.FIRST_TRADE ? (risk?.firstTradeMinUsd || cfg.FIRST_TRADE.minTradeUsd || 0) : 0;
     const ftMin = cfg.FIRST_TRADE ? ftMinUsd : Infinity;
-    if (risk && !ws.riskNoted) { ws.riskNoted = true; console.log(`${w} risk cohort (${risk.via}): first mint at $${ftMinUsd}, free tickets ROI-gated at ${risk.roiMultiple}x`); }
+    if (risk && !ws.riskNoted) { ws.riskNoted = true; const seeded = seedFreeIfNew(ws, cfg.RISK, w); console.log(`${w} risk cohort (${risk.via}): first mint at $${ftMinUsd}, free tickets ROI-gated at ${risk.roiMultiple}x${seeded ? ` (ledger seeded: already received $${ws.roiFreeUsd.toFixed(2)} free)` : ''}`); }
     const tier = tierOf(w);
     for (const f of fs_) {
       if (!qualifies(f.coin, f.time)) continue;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { riskRulesFor, roiRoomTickets, noteFree } from '../src/risk.js';
+import { riskRulesFor, roiRoomTickets, noteFree, seedFreeIfNew } from '../src/risk.js';
 
 const RISK = { wallets: ['0xAbC0000000000000000000000000000000000001'], countries: ['HK'], firstTradeMinUsd: 2000, roiMultiple: 1.1 };
 
@@ -35,4 +35,16 @@ test('at 4bps a cohort wallet must trade ~$2,750 of volume per free ticket', () 
   const ws = { feesUsd: volumeForOne * feeBps / 10_000, roiFreeUsd: 0 };
   assert.equal(Math.round(volumeForOne), 2750);
   assert.equal(roiRoomTickets(ws, rules, 1), 1);
+});
+
+test('ledger seed: a listed wallet starts owing what it was already handed, once', () => {
+  const risk = { ...RISK, seedFreeUsd: { '0xabc0000000000000000000000000000000000001': 6 } };
+  const ws = { feesUsd: 0 };
+  assert.equal(seedFreeIfNew(ws, risk, '0xABC0000000000000000000000000000000000001'), true);
+  assert.equal(ws.roiFreeUsd, 6);
+  assert.equal(seedFreeIfNew(ws, risk, '0xabc0000000000000000000000000000000000001'), false);
+  const rules = riskRulesFor(risk, '0xabc0000000000000000000000000000000000001', null);
+  ws.feesUsd = 6.6; assert.equal(roiRoomTickets(ws, rules, 1), 0);
+  ws.feesUsd = 7.7; assert.equal(roiRoomTickets(ws, rules, 1), 1);
+  assert.equal(seedFreeIfNew({ feesUsd: 0 }, risk, '0x' + '9'.repeat(40)), false);
 });

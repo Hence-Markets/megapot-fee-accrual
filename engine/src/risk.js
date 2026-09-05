@@ -33,3 +33,12 @@ export function noteFree(ws, tickets, priceUsd) {
 
 /** one-line explanation for the log */
 export const roiLine = (ws, rules) => `fees $${(Number(ws?.feesUsd) || 0).toFixed(2)} vs ${rules.roiMultiple}x free $${(Number(ws?.roiFreeUsd) || 0).toFixed(2)}`;
+
+/** first sight of a listed wallet: start its free-value ledger from what it was already handed */
+export function seedFreeIfNew(ws, risk, wallet) {
+  if (!ws || ws.roiFreeUsd != null) return false;
+  const seed = Number(risk?.seedFreeUsd?.[String(wallet || '').toLowerCase()]);
+  if (!(seed > 0)) return false;
+  ws.roiFreeUsd = seed;
+  return true;
+}
