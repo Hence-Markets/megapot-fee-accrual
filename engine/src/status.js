@@ -67,7 +67,8 @@ export function statusRows(s, ctx) {
 }
 
 /** the engine doc that rides with every status POST */
-export const engineDoc = ({ cycleMs, nowMs = Date.now(), paused, target }) => ({ cycleMs, lastCycleMs: nowMs, paused: !!paused, target });
+export const engineDoc = ({ cycleMs, nowMs = Date.now(), paused, target, packPoolUsed, packPoolTotal }) => ({ cycleMs, lastCycleMs: nowMs, paused: !!paused, target,
+  ...(Number.isFinite(Number(packPoolUsed)) ? { packPoolUsed: Number(packPoolUsed) } : {}), ...(Number(packPoolTotal) > 0 ? { packPoolTotal: Number(packPoolTotal) } : {}) });
 
 /** at most MAX_ROWS_PER_POST rows per POST; an empty row set still carries the engine doc */
 export function chunkRows(rows, size = MAX_ROWS_PER_POST) {

@@ -99,6 +99,7 @@ export const cfg = {
   TIER_SINCE_MS: Number(process.env.TIER_SINCE_MS || campaign.campaign.tierSinceMs || 0),
   KICKERS: Object.fromEntries((campaign.multipliers || []).map((m) => [Number(m.x), Number(m.kicker ?? 0)])),
   MULT_BONUS_POOL: Number(campaign.multiplierBonus?.poolTickets || 0),
+  MULT_BONUS_PER_USER_USD: Number(campaign.multiplierBonus?.perUserUsd || 0),   // 0 = no per-user cap
   // relay-spot fee feed (the hence backend's /api/admin/spot-fills; same admin token).
   // Empty = spot accrual OFF even with the product enabled - the engine must never guess
   // at a feed, and Hyperliquid cannot see chain-4663 swaps at all.

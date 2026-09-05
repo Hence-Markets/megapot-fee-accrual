@@ -15,7 +15,8 @@ import { cfg, net, jackpotAbi, buyerAbi, erc20Abi, erc721Abi, retroEnabled } fro
 import { track, trackLegs, postGrant, postStatus, commsEnabled } from './comms.js';
 import { filterInventory, allocateRetro, grantBody, attributeTransferredWins, transfersFromLedger, winGrantBody, claimTxOf } from './retro.js';
 import { enqueue, enqueueStatus, due, afterAttempt, skipLegs } from './outbox.js';
-import { parseRows, userPackGranted, userCapLeft, userCapRoom, userBoxDates } from './users.js';
+import { parseRows, userPackGranted, userCapLeft, userCapRoom, userBoxDates, userWallets } from './users.js';
+import { perUserBonusLeft } from './subsidy.js';
 import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak, buyGasFor } from './safety.js';
 import { blanketGrantsDue } from './grants.js';
 import { riskRulesFor, roiRoomTickets, noteFree, roiLine, seedFreeIfNew } from './risk.js';
@@ -190,7 +191,7 @@ function queueStatus(s, ctx) {
   if (!cfg.STATUS_URL) return;
   const nowMs = Date.now();
   const rows = statusRows(s, { ...ctx, caps: CAPS, cycleMs: cfg.CYCLE_MS, nowMs });
-  enqueueStatus(s, { rows, engine: engineDoc({ cycleMs: cfg.CYCLE_MS, nowMs, paused: !cfg.ACTIVE, target: cfg.TARGET }) }, nowMs);
+  enqueueStatus(s, { rows, engine: engineDoc({ cycleMs: cfg.CYCLE_MS, nowMs, paused: !cfg.ACTIVE, target: cfg.TARGET, packPoolUsed: s.firstTradePoolUsed || 0, packPoolTotal: cfg.FIRST_TRADE ? Number(cfg.FIRST_TRADE.poolTickets || 0) : 0 }) }, nowMs);
   console.log(`[megapot] status: ${rows.length} wallet row(s) queued`);
 }
 
@@ -357,15 +358,18 @@ async function accrueInner(only = null) {
           const slotsLeft = entries.reduce((a, [, n]) => a + n, 0);
           const poolLeft = (ft.poolTickets || Infinity) - (s.firstTradePoolUsed || 0);
           ws.packGranted = true;                     // one shot, even if the pool is gone
-          if (slotsLeft > 0 && poolLeft > 0) {
-            let pick = crypto.randomInt(slotsLeft);
-            let size = Number(entries[0][0]);
-            for (const [k, n] of entries) { if (pick < n) { size = Number(k); break; } pick -= n; }
-            slots[size] -= 1;
+          if (poolLeft > 0) {
+            let size = 1;                                   // slot table dry, pool re-upped: 1-ticket packs
+            if (slotsLeft > 0) {
+              let pick = crypto.randomInt(slotsLeft);
+              size = Number(entries[0][0]);
+              for (const [k, n] of entries) { if (pick < n) { size = Number(k); break; } pick -= n; }
+              slots[size] -= 1;
+            }
             const grant = Math.min(size, poolLeft);
             ws.bonusTicketsPending = (ws.bonusTicketsPending || 0) + grant;
             s.firstTradePoolUsed = (s.firstTradePoolUsed || 0) + grant;
-            console.log(`${w} activation pack: drew ${grant} ticket(s) (qualifying fill $${ws.packQualifiedUsd.toFixed(2)}, pool ${s.firstTradePoolUsed}/${ft.poolTickets}, slots left ${slotsLeft - 1})`);
+            console.log(`${w} activation pack: drew ${grant} ticket(s) (qualifying fill $${ws.packQualifiedUsd.toFixed(2)}, pool ${s.firstTradePoolUsed}/${ft.poolTickets}, slots left ${Math.max(0, slotsLeft - 1)})`);
             emits.push([w, 'megapot_activation_pack', { tickets: grant, qualifyingUsd: Math.round(ws.packQualifiedUsd) }]);
           } else {
             console.log(`${w} activation pack skipped: season pool exhausted (${ft.poolTickets})`);
@@ -483,7 +487,11 @@ async function accrueInner(only = null) {
     if (boostedVol > 0 && kick > 0) {
       const priceUsd = s.lastPriceUsd || 1;
       const poolLeftUsd = cfg.MULT_BONUS_POOL > 0 ? Math.max(0, cfg.MULT_BONUS_POOL * priceUsd - (s.multiplierBonusUsd || 0)) : Infinity;
-      const extra = Math.min(poolLeftUsd, boostedVol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER * kick);
+      // per-USER subsidy cap: the kicker stops at $perUserUsd across linked wallets; base rate continues uncapped
+      const userLeft = perUserBonusLeft(s, userWallets(s, w), cfg.MULT_BONUS_PER_USER_USD);
+      const raw = boostedVol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER * kick;
+      const extra = Math.min(poolLeftUsd, userLeft, raw);
+      if (raw > extra + 1e-9 && userLeft <= extra + 1e-9) console.log(`${w} ${tier.x}x kicker capped: $${cfg.MULT_BONUS_PER_USER_USD} per-user subsidy reached - base rate from here (uncapped)`);
       if (extra > 0) {
         credit += extra;
         s.multiplierBonusUsd = (s.multiplierBonusUsd || 0) + extra;
