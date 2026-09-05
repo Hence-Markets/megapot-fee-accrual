@@ -311,6 +311,11 @@ async function accrueInner(only = null) {
       const dstr = new Date(f.time).toISOString().slice(0, 10);
       (ws.days ??= {})[dstr] = (ws.days[dstr] || 0) + notional;
       ws.lastFillMs = Math.max(ws.lastFillMs, f.time);
+      // promo windows (blanketGrants requires:'traded-between'): stamp the fill so the grant
+      // can fire even after lastFillMs moves past the window
+      for (const g of cfg.BLANKET_GRANTS) {
+        if (g && g.requires === 'traded-between' && Number(f.time) >= (Number(g.fromMs) || 0) && Number(f.time) <= (Number(g.toMs) || Infinity)) (ws.tradedWindow ??= {})[g.id] = true;
+      }
     }
     // relay-spot fills join the SAME wallet ledger: volume and trade-days count toward
     // packs and streak boxes ("every product on Hence"), while the CREDIT is the exact
@@ -469,7 +474,7 @@ async function accrueInner(only = null) {
       console.log(`${w} ops grant '${g.id}': +$${Number(g.usd).toFixed(2)} credit`);
     }
     // blanket grants: campaign-wide one-time credit (e.g. "+2 to everyone who traded by <date>")
-    for (const g of blanketGrantsDue(ws, cfg.BLANKET_GRANTS, { vol, today: new Date().toISOString().slice(0, 10), firstFillMs: firstFillOf(w) })) {
+    for (const g of blanketGrantsDue(ws, cfg.BLANKET_GRANTS, { vol, today: new Date().toISOString().slice(0, 10), firstFillMs: firstFillOf(w), wallet: w, nowMs: Date.now() })) {
       if (risk) {
         const priceUsd = s.lastPriceUsd || 1;
         if (roiRoomTickets(ws, risk, priceUsd) * priceUsd < (Number(g.usd) || 0)) { console.log(`${w} blanket grant '${g.id}' ROI-HELD (${roiLine(ws, risk)})`); continue; }

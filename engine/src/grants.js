@@ -13,11 +13,29 @@
 //                         first fill; onlyWithoutSeasonVolume:true skips wallets that already have
 //                         in-window volume (so a 'pre-season traders' grant does not stack on a
 //                         'season traders' grant).
-export function blanketGrantsDue(ws, grants, { vol = 0, today, firstFillMs = 0 } = {}) {
+//   requires 'traded-between' -> a promo window: the wallet placed a qualifying fill with
+//                         fromMs <= time <= toMs (accrue stamps ws.tradedWindow[g.id] per fill;
+//                         a fill consumed before the grant existed counts via ws.lastFillMs).
+//                         `wallets` restricts to a cohort (the email's recipients);
+//                         `excludeWallets` drops named wallets (the risk cohort). Geo is not
+//                         consulted: the feed already decided who is enrolled.
+export function blanketGrantsDue(ws, grants, { vol = 0, today, firstFillMs = 0, wallet = '', nowMs = Date.now() } = {}) {
   const out = [];
+  const w = String(wallet || '').toLowerCase();
   for (const g of grants || []) {
     if (!g || !g.id || !(Number(g.usd) > 0)) continue;
     if (ws.opsGrants && ws.opsGrants[g.id]) continue;
+    if (g.requires === 'traded-between') {
+      const from = Number(g.fromMs) || 0, to = Number(g.toMs) || Infinity;
+      if (Array.isArray(g.wallets) && g.wallets.length && !g.wallets.some((x) => String(x).toLowerCase() === w)) continue;
+      if (Array.isArray(g.excludeWallets) && g.excludeWallets.some((x) => String(x).toLowerCase() === w)) continue;
+      const stamped = !!(ws.tradedWindow && ws.tradedWindow[g.id]);
+      const last = Number(ws.lastFillMs) || 0;
+      if (!stamped && !(last >= from && last <= to)) continue;
+      if (g.grantUntilMs && nowMs > Number(g.grantUntilMs)) continue;   // too late to mint for the draw
+      out.push(g);
+      continue;
+    }
     const total = (Number(ws.volumeUsd) || 0) + (Number(vol) || 0);
     if (g.requires === 'venue-traded') {
       const ff = Number(firstFillMs) || 0;
