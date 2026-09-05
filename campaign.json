@@ -70,7 +70,7 @@
   },
   "firstTradeBonus": {
     "minTradeUsd": 100,
-    "poolTickets": 200,
+    "poolTickets": 241,
     "$note": "activation pack: account + email + first qualifying trade >= minTradeUsd ($100) opens a pack of 1-5 tickets DRAWN AT RANDOM from a fixed season pool - 150 pack slots totalling exactly 200 tickets, drawn without replacement (odds at launch: 76.0% / 17.3% / 4.7% / 1.3% / 0.7%). The draw depletes s.packSlots in the ledger, so odds drift as slots fill and the pool can never overshoot. dailyMintCap still paces minting per UTC day. QUALIFICATION: one fill >= minTradeUsd ($100) OR combined in-window volume >= minTradeUsd ($100).",
     "dailyMintCap": 30,
     "distribution": [
@@ -94,7 +94,8 @@
         "tickets": 5,
         "slots": 1
       }
-    ]
+    ],
+    "$poolTickets": "2026-09-05: re-upped so that 200 activation-pack tickets remain from 41 used (41+200). When the weighted slot table runs dry the engine falls back to 1-ticket packs until the pool is spent. hub.packCounter shows '200 left from now' off firstTradePoolUsed."
   },
   "terms": {
     "title": "MegaHence Rewards · Season 1 rules",
@@ -114,7 +115,7 @@
       },
       {
         "action": "Any qualifying volume, any market",
-        "reward": "0.04% becomes ticket credit. Uncapped."
+        "reward": "0.04% of notional becomes ticket credit: $1 of fee = 1 ticket. Uncapped, all season."
       },
       {
         "action": "Trade $250+ in a day",
@@ -126,7 +127,7 @@
       },
       {
         "action": "Thesis-basket volume of $1,000+",
-        "reward": "2x to 5x tiers: +25% to +100% extra credit"
+        "reward": "2x to 5x tiers: +25% to +100% extra credit, up to $20 of bonus per user. After that your fee still comes back 1:1 - uncapped."
       },
       {
         "action": "Daily check-in",
@@ -136,7 +137,7 @@
     "caps": [
       "Per wallet: up to 15 tickets mint per day and 30 per rolling week. Anything above that queues and mints at the same pace. Nothing earned is lost.",
       "Across all users: at most 30 activation-pack tickets and 30 surprise-box tickets mint per UTC day. Later grants mint the next day.",
-      "Season pools: 200 activation-pack tickets, 420 surprise-box tickets, 200 multiplier tickets. The trading rebate itself is uncapped.",
+      "Season pools: 200 activation-pack tickets (re-upped 2026-09-05), 420 surprise-box tickets, and multiplier bonus tickets of up to $20 per user from a 200-ticket pool. The trading rebate itself is uncapped: every dollar of fee you pay on Hence comes back as tickets, with no limit, all season.",
       "All daily caps reset at 00:00 UTC."
     ],
     "disclosures": [
@@ -399,7 +400,9 @@
   "$requireBuilderFee": "Only fills that carried Hence's builder fee count for credit, packs and streak boxes. Direct HL trades earn nothing (they earn Hence nothing).",
   "multiplierBonus": {
     "poolTickets": 200,
-    "$note": "the EXTRA tickets multiplier tiers produce (above base fee rebate) are capped season-wide at 200. Kicker enforcement and this cap are BUILT in the engine (engine.js applies the tier kicker and MULT_BONUS_POOL); they activate when BASKET_URL is set in the deploy env (tier feed). Until then the base rate applies."
+    "$note": "the EXTRA tickets multiplier tiers produce (above base fee rebate) are capped season-wide at 200. Kicker enforcement and this cap are BUILT in the engine (engine.js applies the tier kicker and MULT_BONUS_POOL); they activate when BASKET_URL is set in the deploy env (tier feed). Until then the base rate applies.",
+    "perUserUsd": 20,
+    "$perUser": "Multiplier kickers (the EXTRA above the base fee rebate) are capped at $20 per USER (all linked wallets) for the season, on top of the 200-ticket season pool. After $20 the wallet keeps its tier badge but mints at base rate: $1 of ticket per $1 of fee accrued, uncapped. Activation packs and streak boxes have their own pools and are not counted."
   },
   "testReset": {
     "$note": "Team-test reset (2026-09-03): node src/run.js reset <wallets> wipes those wallets' ledger state and returns their pool draws. The hub clears its per-wallet markers when resetEpoch changes.",
@@ -408,7 +411,11 @@
   "hub": {
     "marketingConsentDefault": false,
     "engineCycleS": 300,
-    "$note": "hub-only keys merged to the top level of neo-hence web/src/lib/megapot-campaign.ts by engine/scripts/gen-hub-sheet.mjs. marketingConsentDefault=false: the consent box is unticked by default (pre-ticked consent fails EU rules, Planet49). engineCycleS mirrors ENGINE_INTERVAL_S (300): buys land within one cycle of a threshold crossing."
+    "$note": "hub-only keys merged to the top level of neo-hence web/src/lib/megapot-campaign.ts by engine/scripts/gen-hub-sheet.mjs. marketingConsentDefault=false: the consent box is unticked by default (pre-ticked consent fails EU rules, Planet49). engineCycleS mirrors ENGINE_INTERVAL_S (300): buys land within one cycle of a threshold crossing.",
+    "packCounter": {
+      "total": 200,
+      "startUsed": 41
+    }
   },
   "retro": {
     "enabled": true,
