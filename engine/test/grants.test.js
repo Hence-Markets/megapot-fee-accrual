@@ -60,3 +60,39 @@ test('promo window: cohort wallet with a fill inside the window gets +1 once; ou
   const ws = fresh(); ws.opsGrants['email-tonight'] = { usd: 1 };
   assert.equal(blanketGrantsDue(ws, P, { wallet: '0xaaa', nowMs: 1600 }).length, 0, 'once');
 });
+
+// --- capped promo window: "+1 on any trade tonight, returning traders, first 10 users only"
+const DAY0 = Date.UTC(2026, 8, 6);                    // 2026-09-06T00:00:00Z
+const OPEN = DAY0 + 11 * 3600e3, CLOSE = DAY0 + 16.9 * 3600e3;
+const C = [{ id: 'back-tonight', usd: 1, requires: 'traded-between', fromMs: OPEN, toMs: CLOSE,
+  grantUntilMs: CLOSE + 120e3, priorTraderOnly: true, maxUsers: 10, excludeWallets: ['0xBAD'] }];
+const traded = (over = {}) => ({ volumeUsd: 0, opsGrants: {}, lastFillMs: OPEN + 60e3, days: {}, ...over });
+
+test('capped promo: the cap counts distinct wallets and only a paying wallet burns a slot', () => {
+  const ws = () => traded({ days: { '2026-09-04': 250 } });
+  assert.equal(blanketGrantsDue(ws(), C, { wallet: '0xa', nowMs: OPEN + 120e3, usedUsers: { 'back-tonight': 9 } }).length, 1, 'slot 10 still open');
+  assert.equal(blanketGrantsDue(ws(), C, { wallet: '0xa', nowMs: OPEN + 120e3, usedUsers: { 'back-tonight': 10 } }).length, 0, 'cap reached');
+  // a wallet the other filters reject must not be able to consume a slot: it never reaches the cap check
+  assert.equal(blanketGrantsDue(ws(), C, { wallet: '0xbad', nowMs: OPEN + 120e3, usedUsers: {} }).length, 0, 'excluded wallet');
+  assert.equal(blanketGrantsDue(traded(), C, { wallet: '0xa', nowMs: OPEN + 120e3, usedUsers: {} }).length, 0, 'no prior trading');
+});
+
+test('capped promo: prior-trader gate accepts any evidence of an earlier trade, rejects a first-ever trade', () => {
+  const inWindow = { wallet: '0xa', nowMs: OPEN + 120e3, usedUsers: {} };
+  assert.equal(blanketGrantsDue(traded({ days: { '2026-09-04': 250 } }), C, inWindow).length, 1, 'ledger trade-day before today');
+  assert.equal(blanketGrantsDue(traded(), C, { ...inWindow, firstFillMs: OPEN - 86400e3 }).length, 1, 'feed first fill before the window');
+  assert.equal(blanketGrantsDue(traded({ volumeUsd: 900 }), C, inWindow).length, 1, 'season volume, day map pruned');
+  // first-ever trade lands inside the window: no prior evidence anywhere -> activation pack, not this
+  assert.equal(blanketGrantsDue(traded({ days: { '2026-09-06': 40 } }), C, { ...inWindow, firstFillMs: OPEN + 60e3 }).length, 0, 'brand-new wallet');
+  // any size qualifies: a $3 fill on a returning trader still pays
+  assert.equal(blanketGrantsDue(traded({ days: { '2026-09-01': 3 } }), C, inWindow).length, 1, 'any trade size');
+});
+
+test('capped promo: the window and once-per-wallet rules still hold with a cap set', () => {
+  const base = () => traded({ days: { '2026-09-04': 250 } });
+  assert.equal(blanketGrantsDue(base(), C, { wallet: '0xa', nowMs: CLOSE + 300e3, usedUsers: {} }).length, 0, 'past grantUntilMs');
+  const before = base(); before.lastFillMs = OPEN - 60e3;
+  assert.equal(blanketGrantsDue(before, C, { wallet: '0xa', nowMs: OPEN + 120e3, usedUsers: {} }).length, 0, 'fill before the window opened');
+  const paid = base(); paid.opsGrants['back-tonight'] = { usd: 1 };
+  assert.equal(blanketGrantsDue(paid, C, { wallet: '0xa', nowMs: OPEN + 120e3, usedUsers: {} }).length, 0, 'second trade earns nothing more');
+});
