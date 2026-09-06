@@ -19,7 +19,28 @@
 //                         `wallets` restricts to a cohort (the email's recipients);
 //                         `excludeWallets` drops named wallets (the risk cohort). Geo is not
 //                         consulted: the feed already decided who is enrolled.
-export function blanketGrantsDue(ws, grants, { vol = 0, today, firstFillMs = 0, wallet = '', nowMs = Date.now() } = {}) {
+//                         `priorTraderOnly:true` limits it to wallets that already traded before
+//                         the window opened (the "come back and trade tonight" email goes to
+//                         existing traders; a brand-new wallet gets the activation pack instead).
+//                         `maxUsers` caps how many DISTINCT wallets the grant can ever pay -
+//                         checked last so a wallet filtered out for any other reason never eats
+//                         a slot. The engine owns the counter (state.blanketUsers[id]) and bumps
+//                         it only when it actually credits, so the cap holds across cycles.
+const dayOf = (ms) => new Date(Number(ms) || 0).toISOString().slice(0, 10);
+
+// "has this wallet traded before <ms>?" - deliberately permissive (any one signal is enough) so a
+// returning trader is never denied by a gap in one source. Only a wallet whose FIRST ever trade
+// lands inside the promo window itself fails every branch.
+export function tradedBefore(ws, firstFillMs, beforeMs) {
+  const ff = Number(firstFillMs) || 0;
+  if (ff > 0 && ff < beforeMs) return true;                       // backend feed's reconciled first fill
+  const days = Object.entries(ws?.days || {}).filter(([, v]) => Number(v) > 0).map(([d]) => d);
+  if (days.some((d) => d < dayOf(beforeMs))) return true;         // a ledger trade-day before the window
+  if (!days.length && (Number(ws?.volumeUsd) || 0) > 0) return true; // volume recorded before day-map pruning
+  return false;
+}
+
+export function blanketGrantsDue(ws, grants, { vol = 0, today, firstFillMs = 0, wallet = '', nowMs = Date.now(), usedUsers = {} } = {}) {
   const out = [];
   const w = String(wallet || '').toLowerCase();
   for (const g of grants || []) {
@@ -33,6 +54,9 @@ export function blanketGrantsDue(ws, grants, { vol = 0, today, firstFillMs = 0, 
       const last = Number(ws.lastFillMs) || 0;
       if (!stamped && !(last >= from && last <= to)) continue;
       if (g.grantUntilMs && nowMs > Number(g.grantUntilMs)) continue;   // too late to mint for the draw
+      if (g.priorTraderOnly && !tradedBefore(ws, firstFillMs, from)) continue;
+      // cap check LAST: a wallet rejected above must not consume one of the slots
+      if (Number(g.maxUsers) > 0 && (Number(usedUsers[g.id]) || 0) >= Number(g.maxUsers)) continue;
       out.push(g);
       continue;
     }
