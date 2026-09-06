@@ -307,6 +307,12 @@
       "wallet": "0x74258d399c725e41b95adab693a6b21f901b4535",
       "usd": 1.0,
       "note": "+1 ticket: first US trader after the region gate opened (Sarthak)"
+    },
+    {
+      "id": "trader-thanks-0x5175-2026-09-06",
+      "wallet": "0x51755c1f8c6955fb09685714379bf64db16e2e38",
+      "usd": 2.0,
+      "note": "+2 tickets for draw #166: thanks for trading (Sarthak 2026-09-06). Ops grant, so it is ungated and stacks on the trade-tonight +1."
     }
   ],
   "blanketGrants": [
