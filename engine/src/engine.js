@@ -18,7 +18,7 @@ import { enqueue, enqueueStatus, due, afterAttempt, skipLegs } from './outbox.js
 import { parseRows, userPackGranted, userCapLeft, userCapRoom, userBoxDates, userWallets } from './users.js';
 import { perUserBonusLeft } from './subsidy.js';
 import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak, buyGasFor } from './safety.js';
-import { blanketGrantsDue } from './grants.js';
+import { blanketGrantsDue, grantUsd } from './grants.js';
 import { riskRulesFor, roiRoomTickets, noteFree, roiLine, seedFreeIfNew } from './risk.js';
 import { fileBucket, backoffMs } from './ratelimit.js';
 import { classifyPurchase, classifyIntent, walletOnHold } from './reconcile.js';
@@ -475,17 +475,18 @@ async function accrueInner(only = null) {
     }
     // blanket grants: campaign-wide one-time credit (e.g. "+2 to everyone who traded by <date>")
     for (const g of blanketGrantsDue(ws, cfg.BLANKET_GRANTS, { vol, today: new Date().toISOString().slice(0, 10), firstFillMs: firstFillOf(w), wallet: w, nowMs: Date.now(), usedUsers: (s.blanketUsers ??= {}) })) {
+      const usd = grantUsd(g);   // fixed usd, or a whole-dollar draw from usdRange (recorded as drawn)
       if (risk) {
         const priceUsd = s.lastPriceUsd || 1;
-        if (roiRoomTickets(ws, risk, priceUsd) * priceUsd < (Number(g.usd) || 0)) { console.log(`${w} blanket grant '${g.id}' ROI-HELD (${roiLine(ws, risk)})`); continue; }
-        noteFree(ws, (Number(g.usd) || 0) / priceUsd, priceUsd);
+        if (roiRoomTickets(ws, risk, priceUsd) * priceUsd < usd) { console.log(`${w} blanket grant '${g.id}' ROI-HELD (${roiLine(ws, risk)})`); continue; }
+        noteFree(ws, usd / priceUsd, priceUsd);
       }
-      ws.creditUsdc += Number(g.usd) || 0;
-      (ws.opsGrants ??= {})[g.id] = { usd: g.usd, at: Date.now(), blanket: true };
+      ws.creditUsdc += usd;
+      (ws.opsGrants ??= {})[g.id] = { usd, at: Date.now(), blanket: true, ...(g.usdRange ? { drawn: true } : {}) };
       // a capped grant burns one slot per WALLET it pays; the counter is season state so the cap
       // survives restarts and holds mid-cycle across the wallet loop
       if (Number(g.maxUsers) > 0) s.blanketUsers[g.id] = (Number(s.blanketUsers[g.id]) || 0) + 1;
-      console.log(`${w} blanket grant '${g.id}': +$${Number(g.usd).toFixed(2)} credit${Number(g.maxUsers) > 0 ? ` (slot ${s.blanketUsers[g.id]}/${g.maxUsers})` : ''}`);
+      console.log(`${w} blanket grant '${g.id}': +$${usd.toFixed(2)} credit${g.usdRange ? ' (drawn)' : ''}${Number(g.maxUsers) > 0 ? ` (slot ${s.blanketUsers[g.id]}/${g.maxUsers})` : ''}`);
     }
     let credit = hlVol * (cfg.FEE_BPS / 10_000) * cfg.ROLLOVER + spotCredit;
     // MULTIPLIER KICKER: fills after the wallet reached its tier earn the tier's kicker on
