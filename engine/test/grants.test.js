@@ -96,3 +96,32 @@ test('capped promo: the window and once-per-wallet rules still hold with a cap s
   const paid = base(); paid.opsGrants['back-tonight'] = { usd: 1 };
   assert.equal(blanketGrantsDue(paid, C, { wallet: '0xa', nowMs: OPEN + 120e3, usedUsers: {} }).length, 0, 'second trade earns nothing more');
 });
+
+// --- standing new-trader bonus (+3 to every wallet whose first ever trade is on/after fromDate)
+import { grantUsd } from '../src/grants.js';
+const N = [{ id: 'new-trader-3', usd: 3, requires: 'traded', fromDate: '2026-09-07', excludeWallets: ['0xTEAM'] }];
+const nt = (over = {}) => ({ volumeUsd: 0, opsGrants: {}, lastFillMs: 0, days: {}, ...over });
+
+test('new-trader bonus: first trade on/after fromDate pays, any earlier evidence does not', () => {
+  const now = { wallet: '0xa', today: '2026-09-07' };
+  assert.equal(blanketGrantsDue(nt(), N, { ...now, vol: 50 }).length, 1, 'first fill today (this cycle)');
+  assert.equal(blanketGrantsDue(nt({ days: { '2026-09-08': 20 }, volumeUsd: 20 }), N, { wallet: '0xa', today: '2026-09-08' }).length, 1, 'first fill after fromDate');
+  assert.equal(blanketGrantsDue(nt({ days: { '2026-09-05': 20 }, volumeUsd: 20 }), N, { ...now, vol: 50 }).length, 0, 'ledger day before fromDate');
+  assert.equal(blanketGrantsDue(nt(), N, { ...now, vol: 50, firstFillMs: Date.UTC(2026, 8, 6) }).length, 0, 'feed first fill before fromDate');
+  assert.equal(blanketGrantsDue(nt({ volumeUsd: 900 }), N, now).length, 0, 'old season volume, day map pruned');
+  assert.equal(blanketGrantsDue(nt(), N, { ...now, wallet: '0xteam', vol: 50 }).length, 0, 'excluded wallet');
+  assert.equal(blanketGrantsDue(nt(), N, { ...now, vol: 0 }).length, 0, 'no volume at all');
+  const paid = nt(); paid.opsGrants['new-trader-3'] = { usd: 3 };
+  assert.equal(blanketGrantsDue(paid, N, { ...now, vol: 50 }).length, 0, 'once');
+});
+
+test('usdRange: whole-dollar draw within [lo, hi]; a range-only grant is valid; fixed usd unchanged', () => {
+  const g = { id: 'r', usdRange: [1, 2], requires: 'traded-between', fromMs: 0, toMs: Infinity };
+  assert.equal(grantUsd(g, () => 0), 1); assert.equal(grantUsd(g, () => 0.49), 1);
+  assert.equal(grantUsd(g, () => 0.5), 2); assert.equal(grantUsd(g, () => 0.999), 2);
+  assert.equal(grantUsd({ usd: 3 }), 3); assert.equal(grantUsd({ usdRange: [0, 2] }), 0, 'lo must be > 0');
+  const seen = new Set(); for (let i = 0; i < 200; i++) seen.add(grantUsd(g));
+  assert.deepEqual([...seen].sort(), [1, 2], 'both outcomes occur');
+  assert.equal(blanketGrantsDue(nt({ lastFillMs: 5 }), [g], { wallet: '0xa', nowMs: 10 }).length, 1, 'range-only grant is evaluated');
+  assert.equal(blanketGrantsDue(nt({ lastFillMs: 5 }), [{ ...g, excludeWallets: ['0xA'] }], { wallet: '0xa', nowMs: 10 }).length, 0, 'excludeWallets is case-insensitive');
+});

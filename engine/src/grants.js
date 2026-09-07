@@ -26,6 +26,13 @@
 //                         checked last so a wallet filtered out for any other reason never eats
 //                         a slot. The engine owns the counter (state.blanketUsers[id]) and bumps
 //                         it only when it actually credits, so the cap holds across cycles.
+//   fromDate (requires 'traded') -> STANDING new-trader bonus: only wallets whose FIRST ever
+//                         trade (ledger day map, season volume, or the feed's firstFillMs) is on/
+//                         after this UTC date. The opposite of beforeDate; combine neither.
+//   excludeWallets       -> honoured by EVERY grant type (team wallets, risk cohort).
+//   usdRange: [lo, hi]   -> instead of a fixed `usd`, the engine draws a whole-dollar amount
+//                         uniformly in [lo, hi] when it credits (grantUsd below), once per wallet;
+//                         the drawn amount is what the ledger records.
 const dayOf = (ms) => new Date(Number(ms) || 0).toISOString().slice(0, 10);
 
 // "has this wallet traded before <ms>?" - deliberately permissive (any one signal is enough) so a
@@ -40,16 +47,27 @@ export function tradedBefore(ws, firstFillMs, beforeMs) {
   return false;
 }
 
+// resolve a grant's dollar amount: fixed `usd`, or a whole-dollar draw from `usdRange` [lo, hi]
+export function grantUsd(g, rng = Math.random) {
+  if (Array.isArray(g?.usdRange) && g.usdRange.length === 2) {
+    const lo = Math.floor(Number(g.usdRange[0])), hi = Math.floor(Number(g.usdRange[1]));
+    if (lo > 0 && hi >= lo) return lo + Math.floor(rng() * (hi - lo + 1));
+    return 0;
+  }
+  return Number(g?.usd) > 0 ? Number(g.usd) : 0;
+}
+const grantValid = (g) => !!g && !!g.id && (Number(g.usd) > 0 || grantUsd(g, () => 0) > 0);
+
 export function blanketGrantsDue(ws, grants, { vol = 0, today, firstFillMs = 0, wallet = '', nowMs = Date.now(), usedUsers = {} } = {}) {
   const out = [];
   const w = String(wallet || '').toLowerCase();
   for (const g of grants || []) {
-    if (!g || !g.id || !(Number(g.usd) > 0)) continue;
+    if (!grantValid(g)) continue;
     if (ws.opsGrants && ws.opsGrants[g.id]) continue;
+    if (Array.isArray(g.excludeWallets) && g.excludeWallets.some((x) => String(x).toLowerCase() === w)) continue;
     if (g.requires === 'traded-between') {
       const from = Number(g.fromMs) || 0, to = Number(g.toMs) || Infinity;
       if (Array.isArray(g.wallets) && g.wallets.length && !g.wallets.some((x) => String(x).toLowerCase() === w)) continue;
-      if (Array.isArray(g.excludeWallets) && g.excludeWallets.some((x) => String(x).toLowerCase() === w)) continue;
       const stamped = !!(ws.tradedWindow && ws.tradedWindow[g.id]);
       const last = Number(ws.lastFillMs) || 0;
       if (!stamped && !(last >= from && last <= to)) continue;
@@ -71,6 +89,8 @@ export function blanketGrantsDue(ws, grants, { vol = 0, today, firstFillMs = 0, 
     }
     if ((g.requires || 'traded') !== 'traded') continue;
     if (!(total > 0)) continue;
+    // standing new-trader bonus: any evidence of a trade before fromDate disqualifies the wallet
+    if (g.fromDate && tradedBefore(ws, firstFillMs, new Date(String(g.fromDate) + 'T00:00:00Z').getTime())) continue;
     if (g.beforeDate) {
       const days = Object.entries(ws.days || {}).filter(([, v]) => Number(v) > 0).map(([d]) => d);
       if (vol > 0 && today) days.push(today);
