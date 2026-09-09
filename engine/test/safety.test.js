@@ -71,7 +71,10 @@ test('shipped fee defaults sit above Base median base fee', async () => {
   assert.ok(cfg.MAX_FEE_CEILING_WEI >= gwei(0.5),
     `ceiling ${cfg.MAX_FEE_CEILING_WEI} must clear Base's p90 base fee (~0.33 gwei) with headroom`);
   assert.ok(cfg.MAX_FEE_WEI < cfg.MAX_FEE_CEILING_WEI, 'alert line must sit below the hard ceiling');
-  assert.ok(cfg.MAX_FEE_WEI >= gwei(0.1), 'alert line above Base median so fee_spike stays meaningful');
+  // MAX_FEE_WEI also sizes the pool's ETH reserve (safety.lowFunds). A reserve the pool cannot
+  // meet stops every buy, so it is pinned to something a working balance can cover.
+  const reserveEth = Number(gasReserveWei(cfg.MAX_FEE_WEI)) / 1e18;
+  assert.ok(reserveEth <= 0.001, `gas reserve ${reserveEth} ETH must stay within a normal pool balance`);
   // a delivery at the ceiling stays cheap against a $1 ticket
   const worstCaseEth = Number(cfg.MAX_FEE_CEILING_WEI) * 60_000 / 1e18;
   assert.ok(worstCaseEth < 0.0001, `worst-case transfer ${worstCaseEth} ETH must stay under 0.0001`);

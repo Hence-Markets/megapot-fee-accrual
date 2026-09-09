@@ -148,7 +148,12 @@ export const cfg = {
 
   // buy-tx fee ceiling: raise via MAX_FEE_GWEI when Base runs hot - buys stall
   // (retrying each cycle) while the base fee sits above this cap.
-  MAX_FEE_WEI: BigInt(Math.round(Number(process.env.MAX_FEE_GWEI || 0.25) * 1e9)),
+  // CAREFUL: this value is NOT only the fee_spike alert line - safety.lowFunds() sizes the
+  // pool's ETH reserve from it as GAS_PER_BUY * this * 3. Raising it to 0.25 on 2026-09-09
+  // pushed the required reserve to 0.0075 ETH against a 0.00146 ETH balance, so fundsOk went
+  // false and EVERY buy and retro transfer stopped for three hours. Back to 0.018 (reserve
+  // 0.00054 ETH). Raise it only alongside a pool top-up, or decouple the reserve first.
+  MAX_FEE_WEI: BigInt(Math.round(Number(process.env.MAX_FEE_GWEI || 0.018) * 1e9)),
   // buys pay maxFeePerGas = min(2 x current base fee, this hard ceiling); a base fee
   // above MAX_FEE_WEI raises a fee_spike alert, above the ceiling buys wait.
   // 2026-09-09 recalibration: the old 0.1 gwei ceiling sat BELOW Base's median base fee
