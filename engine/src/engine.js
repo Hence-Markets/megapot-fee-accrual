@@ -1111,7 +1111,7 @@ const poolAddress = () => {
 const _unknownOwnerLogged = new Set();                 // one log line per ticket per process
 /** wallet -> rows the pool's venue rows hand to that wallet; {} when anything is unavailable.
  *  Sets throttled() on a 429 like every other venue call. */
-async function transferredWins(s, pub, { throttled, onThrottle }) {
+async function transferredWins(s, pub, { throttled, onThrottle, currentRound = null }) {
   const pool = poolAddress();
   if (!pool || !cfg.TICKET_NFT || throttled()) return {};
   try {
@@ -1120,13 +1120,16 @@ async function transferredWins(s, pub, { throttled, onThrottle }) {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = await r.json();
     const rows = Array.isArray(j?.data) ? j.data : [];
-    const winners = rows.filter((t) => t && usdOf(t) > 0 && /^[0-9]+$/.test(String(t.user_ticket_id ?? '')));
+    // wins from any round, PLUS every live-round ticket: a forwarded ticket is filed under
+    // the pool for good, so without this a user who was handed one reads 0 in tonight's draw
+    const inRound = (t) => currentRound != null && String(t.round_id ?? t.roundId ?? '') === String(currentRound);
+    const winners = rows.filter((t) => t && /^[0-9]+$/.test(String(t.user_ticket_id ?? '')) && (usdOf(t) > 0 || inRound(t)));
     if (!winners.length) return {};
     const res = await pub.multicall({ allowFailure: true, contracts: winners.map((t) => ({ address: cfg.TICKET_NFT, abi: erc721Abi, functionName: 'ownerOf', args: [BigInt(t.user_ticket_id)] })) });
     const owners = Object.fromEntries(winners.map((t, i) => [String(t.user_ticket_id), res[i]?.status === 'success' ? String(res[i].result).toLowerCase() : null]));
     const byWallet = {};
     const hits = attributeTransferredWins(winners, owners, eligibleWallets(), {
-      pool, transfers: transfersFromLedger(s),
+      pool, transfers: transfersFromLedger(s), includeNonWinning: true,
       onUnknown: (id, owner, t) => {
         if (_unknownOwnerLogged.has(id)) return;
         _unknownOwnerLogged.add(id);
@@ -1134,7 +1137,10 @@ async function transferredWins(s, pub, { throttled, onThrottle }) {
       },
     });
     for (const { wallet, row } of hits) (byWallet[wallet] ??= []).push(row);
-    if (hits.length) console.log(`[megapot] win sweep: ${hits.length} transferred-ticket win(s) attributed to ${Object.keys(byWallet).length} wallet(s) (${winners.length} winner(s) under the pool)`);
+    if (hits.length) {
+      const won = hits.filter((h) => usdOf(h.row) > 0).length;
+      console.log(`[megapot] win sweep: ${hits.length} transferred ticket(s) attributed to ${Object.keys(byWallet).length} wallet(s) - ${won} winning, ${hits.length - won} live in round ${currentRound ?? '?'} (${winners.length} candidate(s) under the pool)`);
+    }
     return byWallet;
   } catch (e) {
     console.log(`[megapot] win sweep: transferred-ticket wins unavailable (${String(e.shortMessage || e.message).split('\n')[0]}) - skipped this sweep`);
@@ -1167,7 +1173,7 @@ async function winSweepInner() {
   const todayKey = new Date().toISOString().slice(0, 10);
   const mintedToday = (s.purchases || []).filter((p) => p.day === todayKey && !p.refunded).reduce((a, p) => a + p.count, 0);
   // wins the venue still files under the pool wallet for tickets the retro path handed out
-  const transferred = await transferredWins(s, sweepPub, { throttled: () => throttled, onThrottle: () => { throttled = true; } });
+  const transferred = await transferredWins(s, sweepPub, { throttled: () => throttled, onThrottle: () => { throttled = true; }, currentRound });
   const sweepEmits = [];
   const one = async (w) => {
     const ws = wstate(s, w);
