@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filterInventory, allocateRetro, grantBody } from '../src/retro.js';
+import { filterInventory, allocateRetro, grantBody, attributeTransferredWins, transfersFromLedger, winGrantBody, claimTxOf } from '../src/retro.js';
+import { usdOf, winTransition } from '../src/lifecycle.js';
 import { userCapLeft } from '../src/users.js';
 
 const POOL = '0xBC54e516405A959746E3531d81Ea656DCc687A82';
@@ -46,7 +47,6 @@ test('grant body is what the hub expects', () => {
 });
 
 // ── transferred-ticket wins: the venue files a retro ticket under the pool for good ──
-import { attributeTransferredWins, transfersFromLedger, winGrantBody, claimTxOf } from '../src/retro.js';
 
 const USER = '0x' + 'a'.repeat(40), OTHER = '0x' + 'b'.repeat(40), STRANGER = '0x' + 'c'.repeat(40);
 const win = (id, o = {}) => row(id, { winnings_amount: { amount: '3590000', decimals: 6 }, ...o });   // $3.59 like round 163
@@ -115,4 +115,38 @@ test('win grant upsert carries the win on top of the original grant fields', () 
   assert.equal(typeof winGrantBody({ wallet: USER, tokenId: 1 }).settledAt, 'number');
   assert.equal(claimTxOf({ claim_tx_hash: '0xc' }), '0xc');
   assert.equal(claimTxOf({}), undefined);
+});
+
+// 2026-09-09: a forwarded ticket stays filed under the POOL in the venue API forever, so a
+// user handed one read "0 tickets in tonight's draw" while holding it on chain. Wins were
+// always attributed; live-round tickets now are too.
+test('attributeTransferredWins: includeNonWinning attributes live-round tickets, default still wins-only', () => {
+  const USER = '0xaaaa000000000000000000000000000000000001';
+  const POOL = '0xbc54e516405a959746e3531d81ea656dcc687a82';
+  const winner = { user_ticket_id: '11', round_id: '168', winnings_amount: { amount: '3000000', decimals: 6 } };
+  const live = { user_ticket_id: '22', round_id: '169', winnings_amount: null };
+  const rows = [winner, live];
+  const owners = { '11': USER, '22': USER };
+  const opts = { pool: POOL, transfers: {} };
+
+  const winsOnly = attributeTransferredWins(rows, owners, [USER], opts);
+  assert.deepEqual(winsOnly.map((h) => h.row.user_ticket_id), ['11'], 'default behaviour unchanged');
+
+  const both = attributeTransferredWins(rows, owners, [USER], { ...opts, includeNonWinning: true });
+  assert.deepEqual(both.map((h) => h.row.user_ticket_id).sort(), ['11', '22'], 'live-round ticket now attributed');
+  assert.equal(both.every((h) => h.wallet === USER), true);
+  // a non-winning row must never look claimable
+  const liveRow = both.find((h) => h.row.user_ticket_id === '22').row;
+  assert.equal(usdOf(liveRow), 0);
+  assert.equal(winTransition(undefined, liveRow), null, 'a $0 ticket raises no win event');
+});
+
+test('attributeTransferredWins: the pool keeps its own live tickets, strangers are still skipped', () => {
+  const POOL = '0xbc54e516405a959746e3531d81ea656dcc687a82';
+  const USER = '0xaaaa000000000000000000000000000000000001';
+  const rows = [{ user_ticket_id: '31', round_id: '169', winnings_amount: null },
+                { user_ticket_id: '32', round_id: '169', winnings_amount: null }];
+  const owners = { '31': POOL, '32': '0xdead000000000000000000000000000000000009' };
+  const out = attributeTransferredWins(rows, owners, [USER], { pool: POOL, transfers: {}, includeNonWinning: true });
+  assert.equal(out.length, 0, 'pool-held stock and non-enrolled holders are not attributed');
 });

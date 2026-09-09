@@ -63,13 +63,17 @@ export function transfersFromLedger(s) {
  *  `claimed` true when burned (never downgraded), `_source:'retro'`, `_tx`/`_ts` when the
  *  ledger knows the transfer. The pool's own wins are left alone; a ticket owned by an
  *  address that is not enrolled (or burned with no transfer record) goes to onUnknown. */
-export function attributeTransferredWins(poolRows, owners, ledgerWallets, { pool = '', transfers = {}, onUnknown = () => {} } = {}) {
+export function attributeTransferredWins(poolRows, owners, ledgerWallets, { pool = '', transfers = {}, onUnknown = () => {}, includeNonWinning = false } = {}) {
   const poolL = String(pool || '').toLowerCase();
   const enrolled = new Set([...(ledgerWallets || [])].map((w) => String(w).toLowerCase()));
   const out = [], seen = new Set();
   for (const t of poolRows || []) {
     const id = numericId(t);
-    if (!id || seen.has(id) || !(usdOf(t) > 0)) continue;
+    // A ticket the retro path handed out stays filed under the POOL in the venue API
+    // forever, so a user who was handed one sees 0 in tonight's draw unless we attribute
+    // it here. Wins were always attributed; with includeNonWinning the caller can also
+    // pass the live round's rows so the count a user sees matches what they hold on chain.
+    if (!id || seen.has(id) || (!includeNonWinning && !(usdOf(t) > 0))) continue;
     if (!owners || !(id in owners)) continue;                      // not resolved this sweep
     seen.add(id);
     const owner = owners[id] == null ? null : String(owners[id]).toLowerCase();
@@ -77,7 +81,7 @@ export function attributeTransferredWins(poolRows, owners, ledgerWallets, { pool
     const rec = transfers?.[id];
     const wallet = burned ? (rec?.wallet || '') : owner;
     if (!burned && wallet === poolL) continue;                     // the pool's own win
-    if (!wallet || !enrolled.has(wallet)) { onUnknown(id, owner, t); continue; }
+    if (!wallet || !enrolled.has(wallet)) { if (usdOf(t) > 0) onUnknown(id, owner, t); continue; }
     // the chain names a live ticket's holder; the ledger's record only adds the transfer tx/ts
     const known = rec && rec.wallet === wallet ? rec : null;
     const row = { ...t, _wallet: wallet, _source: 'retro', claimed: burned || t.claimed === true, ...(burned ? { claimedOnChain: true } : {}),
