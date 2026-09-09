@@ -1,5 +1,5 @@
 {
-  "$doc": "Campaign controller \u2014 the single spec sheet ops edits to retune the program. The engine and frontend both read this file. Env vars still hold the SECURITY gates (MEGAPOT_ACTIVE, MEGAPOT_WHITELIST, keys) \u2014 this file holds the PRODUCT parameters.",
+  "$doc": "Campaign controller — the single spec sheet ops edits to retune the program. The engine and frontend both read this file. Env vars still hold the SECURITY gates (MEGAPOT_ACTIVE, MEGAPOT_WHITELIST, keys) — this file holds the PRODUCT parameters.",
   "campaign": {
     "id": "megahence-rewards-s1",
     "name": "MegaHence Rewards - Season 1",
@@ -16,17 +16,17 @@
       "xyz-equities",
       "spot"
     ],
-    "$products": "product suites this campaign covers: perps (native HL coins) | xyz-equities (coins prefixed xyz:) | spot (Robinhood Chain swaps via the hence backend's relay-spot feed \u2014 SPOT_FILLS_URL; fills carry Hence's 25bps app fee as builderFee and credit that EXACT fee, not a bps-of-notional recompute, because our own receipts ledger records it per fill) | baskets (fills recorded via thesis executions \u2014 needs app stitch) | predictions (not yet supported)",
+    "$products": "product suites this campaign covers: perps (native HL coins) | xyz-equities (coins prefixed xyz:) | spot (Robinhood Chain swaps via the hence backend's relay-spot feed — SPOT_FILLS_URL; fills carry Hence's 25bps app fee as builderFee and credit that EXACT fee, not a bps-of-notional recompute, because our own receipts ledger records it per fill) | baskets (fills recorded via thesis executions — needs app stitch) | predictions (not yet supported)",
     "symbols": [],
     "$symbols": "empty = ALL symbols on the enabled products qualify (Season 1 rule: every product on Hence). Add tickers to restrict.",
     "excludeZeroFeePairs": [],
-    "$excludeZeroFeePairs": "symbols currently running zero-fee promos (no fee revenue \u2192 no credit), e.g. the xyz rebate campaign list"
+    "$excludeZeroFeePairs": "symbols currently running zero-fee promos (no fee revenue → no credit), e.g. the xyz rebate campaign list"
   },
   "economics": {
     "feeBps": 4.0,
     "rolloverShare": 1.0,
     "$note": "4.0bps = Hence's LIVE builder-fee take (verified /api/config hlBuilderFee=40 tenths). Charged on routed orders regardless of maker/taker, so accrual is identical on maker flow. Ticket conversion always uses Megapot's live ticketPrice().",
-    "$spotNote": "Relay-spot fills credit their EXACT recorded fee (builderFee on the feed row = the 25bps app fee our own ledger stored for that swap) times rolloverShare \u2014 no spotFeeBps knob exists on purpose: a bps recompute could drift from what was actually charged, and unlike HL (where the engine reads the venue's feed) the spot fee is first-party ground truth."
+    "$spotNote": "Relay-spot fills credit their EXACT recorded fee (builderFee on the feed row = the 25bps app fee our own ledger stored for that swap) times rolloverShare — no spotFeeBps knob exists on purpose: a bps recompute could drift from what was actually charged, and unlike HL (where the engine reads the venue's feed) the spot fee is first-party ground truth."
   },
   "multipliers": [
     {
@@ -62,8 +62,8 @@
   ],
   "caps": {
     "ticketsPerWalletPerDay": 15,
-    "ticketsPerWalletPerWeek": 30,
-    "$userCaps": "RAISED 2026-09-03 21:30Z (Sarthak): 5/day + 15/week queued a heavy trader's earned tickets behind the draw. Caps stay per USER (linked wallets share one ledger).",
+    "ticketsPerWalletPerWeek": 70,
+    "$userCaps": "RAISED AGAIN 2026-09-09 16:00Z (Sarthak): the 30/week cap re-queued the heaviest earners - 0x9cc6 sat at 35 tickets over the rolling 7 days and read 'cap 0', with two more wallets at 29 and 26 about to hit it. Earned fee-rebate credit is owed either way, so the cap only delays delivery and shows the user 'queued'. Weekly 30 -> 70; the 15/day cap still limits bursts. Caps stay per USER (linked wallets share one ledger). Previous raise 2026-09-03 21:30Z took 5/day+15/week to 15/day+30/week for the same symptom.",
     "globalBudgetUsdc": 1500,
     "$globalBudgetUsdc": "SEASON 1 BUDGET (Sarthak, 2026-09-02): 820+ tickets seeded into the pool wallet = 200 activation packs (FCFS) + 420 streak boxes (30/day x 14) + 200 multiplier rebate cap; trading-fee rebate is UNCAPPED and topped up daily. This ceiling is a spend safety stop, not the budget: keep it above wallet balance and raise it with each top-up (deploy dispatch budget_usdc overrides; LIVE dispatch 2026-09-03: budget_usdc=1500). Retro: Megapot sends 12 tickets/day to the pool wallet (168 over the season) as NFTs, not USDC - they are handed out by the retro transfer path (see `retro`) and do not count against this USDC ceiling.",
     "$retroTickets": "Megapot's 12 tickets/day land in the pool wallet as TicketNFTs (inventory, not USDC). With retro.enabled the engine transfers pool-held tickets of the ACTIVE round to users to settle credit BEFORE buying with USDC (RETRO_TRANSFERS=1, TICKET_NFT in the deploy env). Tickets from a closed round cannot be handed out and stay in stock. See `retro` below."
@@ -98,7 +98,7 @@
     "$poolTickets": "2026-09-05: re-upped so that 200 activation-pack tickets remain from 41 used (41+200). When the weighted slot table runs dry the engine falls back to 1-ticket packs until the pool is spent. hub.packCounter shows '200 left from now' off firstTradePoolUsed."
   },
   "terms": {
-    "title": "MegaHence Rewards \u00b7 Season 1 rules",
+    "title": "MegaHence Rewards · Season 1 rules",
     "steps": [
       "Season 1 runs from September 2, 2026 (20:00 UTC) to September 16, 2026 (22:00 UTC). Trades outside the window do not count.",
       "Sign in to Hence with your wallet. Linking an email is optional, but it is where draw results and win alerts go.",
@@ -157,7 +157,7 @@
       "categories": [
         {
           "key": "hl-perps",
-          "label": "HL perps \u00b7 all pairs",
+          "label": "HL perps · all pairs",
           "symbols": [
             "BTC",
             "ETH",
@@ -169,7 +169,7 @@
         },
         {
           "key": "xyz-equities",
-          "label": "xyz equities \u00b7 all pairs",
+          "label": "xyz equities · all pairs",
           "symbols": [
             "NVDA",
             "TSLA",
