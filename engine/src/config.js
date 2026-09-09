@@ -148,10 +148,16 @@ export const cfg = {
 
   // buy-tx fee ceiling: raise via MAX_FEE_GWEI when Base runs hot - buys stall
   // (retrying each cycle) while the base fee sits above this cap.
-  MAX_FEE_WEI: BigInt(Math.round(Number(process.env.MAX_FEE_GWEI || 0.018) * 1e9)),
+  MAX_FEE_WEI: BigInt(Math.round(Number(process.env.MAX_FEE_GWEI || 0.25) * 1e9)),
   // buys pay maxFeePerGas = min(2 x current base fee, this hard ceiling); a base fee
   // above MAX_FEE_WEI raises a fee_spike alert, above the ceiling buys wait.
-  MAX_FEE_CEILING_WEI: BigInt(Math.round(Number(process.env.MAX_FEE_GWEI_CEILING || 0.1) * 1e9)),
+  // 2026-09-09 recalibration: the old 0.1 gwei ceiling sat BELOW Base's median base fee
+  // (sampled 24 blocks over ~36 min: min 0.060, median 0.134, p90 0.331, max 0.454 gwei -
+  // 16 of 24 blocks above 0.1). Deliveries stalled roughly two thirds of the time and the
+  // hub showed owed tickets as queued. 1.0 gwei clears the observed max with headroom and
+  // still caps a 60k-gas transfer at ~0.00006 ETH; the alert line moved 0.018 -> 0.25 so a
+  // fee_spike means something again instead of firing on every ordinary block.
+  MAX_FEE_CEILING_WEI: BigInt(Math.round(Number(process.env.MAX_FEE_GWEI_CEILING || 1.0) * 1e9)),
   PRIORITY_FEE_WEI: 500_000n,                        // 0.0005 gwei tip
   // Hyperliquid info calls per minute across the full sweep + fast lane (token bucket)
   HL_RPM: Number(process.env.HL_RPM || 50),

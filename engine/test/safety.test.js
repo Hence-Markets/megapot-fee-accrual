@@ -62,3 +62,17 @@ test('buy gas scales with ticket count and covers the measured 10-ticket cost', 
   assert.equal(buyGasFor(50), buyGasFor(10), 'never above the per-call maximum');
   assert.equal(GAS_PER_BUY, buyGasFor(10), 'the ETH reserve assumes the largest buy');
 });
+
+// 2026-09-09: the shipped defaults must clear Base's real base fee, not the 2026-07 one.
+// Regression guard for the "tickets queued, nothing mints" incident.
+test('shipped fee defaults sit above Base median base fee', async () => {
+  const { cfg } = await import('../src/config.js');
+  const gwei = (n) => BigInt(Math.round(n * 1e9));
+  assert.ok(cfg.MAX_FEE_CEILING_WEI >= gwei(0.5),
+    `ceiling ${cfg.MAX_FEE_CEILING_WEI} must clear Base's p90 base fee (~0.33 gwei) with headroom`);
+  assert.ok(cfg.MAX_FEE_WEI < cfg.MAX_FEE_CEILING_WEI, 'alert line must sit below the hard ceiling');
+  assert.ok(cfg.MAX_FEE_WEI >= gwei(0.1), 'alert line above Base median so fee_spike stays meaningful');
+  // a delivery at the ceiling stays cheap against a $1 ticket
+  const worstCaseEth = Number(cfg.MAX_FEE_CEILING_WEI) * 60_000 / 1e18;
+  assert.ok(worstCaseEth < 0.0001, `worst-case transfer ${worstCaseEth} ETH must stay under 0.0001`);
+});
