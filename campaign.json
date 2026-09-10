@@ -1,5 +1,5 @@
 {
-  "$doc": "Campaign controller — the single spec sheet ops edits to retune the program. The engine and frontend both read this file. Env vars still hold the SECURITY gates (MEGAPOT_ACTIVE, MEGAPOT_WHITELIST, keys) — this file holds the PRODUCT parameters.",
+  "$doc": "Campaign controller \u2014 the single spec sheet ops edits to retune the program. The engine and frontend both read this file. Env vars still hold the SECURITY gates (MEGAPOT_ACTIVE, MEGAPOT_WHITELIST, keys) \u2014 this file holds the PRODUCT parameters.",
   "campaign": {
     "id": "megahence-rewards-s1",
     "name": "MegaHence Rewards - Season 1",
@@ -16,17 +16,17 @@
       "xyz-equities",
       "spot"
     ],
-    "$products": "product suites this campaign covers: perps (native HL coins) | xyz-equities (coins prefixed xyz:) | spot (Robinhood Chain swaps via the hence backend's relay-spot feed — SPOT_FILLS_URL; fills carry Hence's 25bps app fee as builderFee and credit that EXACT fee, not a bps-of-notional recompute, because our own receipts ledger records it per fill) | baskets (fills recorded via thesis executions — needs app stitch) | predictions (not yet supported)",
+    "$products": "product suites this campaign covers: perps (native HL coins) | xyz-equities (coins prefixed xyz:) | spot (Robinhood Chain swaps via the hence backend's relay-spot feed \u2014 SPOT_FILLS_URL; fills carry Hence's 25bps app fee as builderFee and credit that EXACT fee, not a bps-of-notional recompute, because our own receipts ledger records it per fill) | baskets (fills recorded via thesis executions \u2014 needs app stitch) | predictions (not yet supported)",
     "symbols": [],
     "$symbols": "empty = ALL symbols on the enabled products qualify (Season 1 rule: every product on Hence). Add tickers to restrict.",
     "excludeZeroFeePairs": [],
-    "$excludeZeroFeePairs": "symbols currently running zero-fee promos (no fee revenue → no credit), e.g. the xyz rebate campaign list"
+    "$excludeZeroFeePairs": "symbols currently running zero-fee promos (no fee revenue \u2192 no credit), e.g. the xyz rebate campaign list"
   },
   "economics": {
     "feeBps": 4.0,
     "rolloverShare": 1.0,
     "$note": "4.0bps = Hence's LIVE builder-fee take (verified /api/config hlBuilderFee=40 tenths). Charged on routed orders regardless of maker/taker, so accrual is identical on maker flow. Ticket conversion always uses Megapot's live ticketPrice().",
-    "$spotNote": "Relay-spot fills credit their EXACT recorded fee (builderFee on the feed row = the 25bps app fee our own ledger stored for that swap) times rolloverShare — no spotFeeBps knob exists on purpose: a bps recompute could drift from what was actually charged, and unlike HL (where the engine reads the venue's feed) the spot fee is first-party ground truth."
+    "$spotNote": "Relay-spot fills credit their EXACT recorded fee (builderFee on the feed row = the 25bps app fee our own ledger stored for that swap) times rolloverShare \u2014 no spotFeeBps knob exists on purpose: a bps recompute could drift from what was actually charged, and unlike HL (where the engine reads the venue's feed) the spot fee is first-party ground truth."
   },
   "multipliers": [
     {
@@ -98,7 +98,7 @@
     "$poolTickets": "2026-09-05: re-upped so that 200 activation-pack tickets remain from 41 used (41+200). When the weighted slot table runs dry the engine falls back to 1-ticket packs until the pool is spent. hub.packCounter shows '200 left from now' off firstTradePoolUsed."
   },
   "terms": {
-    "title": "MegaHence Rewards · Season 1 rules",
+    "title": "MegaHence Rewards \u00b7 Season 1 rules",
     "steps": [
       "Season 1 runs from September 2, 2026 (20:00 UTC) to September 16, 2026 (22:00 UTC). Trades outside the window do not count.",
       "Sign in to Hence with your wallet. Linking an email is optional, but it is where draw results and win alerts go.",
@@ -157,7 +157,7 @@
       "categories": [
         {
           "key": "hl-perps",
-          "label": "HL perps · all pairs",
+          "label": "HL perps \u00b7 all pairs",
           "symbols": [
             "BTC",
             "ETH",
@@ -169,7 +169,7 @@
         },
         {
           "key": "xyz-equities",
-          "label": "xyz equities · all pairs",
+          "label": "xyz equities \u00b7 all pairs",
           "symbols": [
             "NVDA",
             "TSLA",
@@ -621,6 +621,75 @@
         "0xfbf450fe45475aa111f64b9b3e02807ac3a8538a"
       ],
       "$note": "Sarthak 2026-09-08: +2 tickets for FIRST-TIME traders - wallets whose first ever trade lands on/after 2026-09-08 UTC. Stacks on new-trader-plus3-2026-09-07 (+3) and on trade-today-draw168 (+1), so a brand-new trader tonight receives 6. STANDING until this entry is deleted - remove after the draw unless Sarthak wants it to run."
+    },
+    {
+      "id": "trade-again-tonight-draw170-2026-09-10",
+      "usd": 5.0,
+      "requires": "traded-between",
+      "fromMs": 1789055400000,
+      "toMs": 1789059300000,
+      "grantUntilMs": 1789059420000,
+      "excludeWallets": [
+        "0x9cc6c5d8318c69b602b866f644628e61d98f55ed",
+        "0xc6b45831511cd908f85765c0003a96d4f1adec93",
+        "0x3919be84e2a75c03aa6ef2e82dda9419572c9464",
+        "0x4be573b29944e2676da8cddeab7677b1519eb272",
+        "0x024a8cbc7107f44374d85f7a79cce4bd4348989f",
+        "0x3b16aff655a005c3f8e7603953e22d08bfd3f192",
+        "0x3cfdb468ae18b8eba32a56b8935e17a340b42989",
+        "0x4040f7dda4e8bbb34a583403e003ac14b14d868b",
+        "0x527e3e27e603367ca0178c4c4f6a18a943d8cd30",
+        "0x532e46cbccd3f0bb821ba6fc173474c8dcfa1d2b",
+        "0x580e8d091c2c0beaaa355260f72e2bbb52a7ede6",
+        "0x6b2119eb7898683f483a47f98fc4d35852d4d09c",
+        "0x73644a9eb01d848501f56364f4501b4a85d3914f",
+        "0x8273cbd869b1f24f45212256ff1aadbb45e0d935",
+        "0x8e9012744862933cf778b7005444e3739bf116bc",
+        "0xa28d2d57a9d0a0194489e3d99a21de782a785aed",
+        "0xa810741d079af287b674be789f577e2585ea1045",
+        "0xb9428b03aaa13beb63ae94d8224d57ea33ac711c",
+        "0xc1f94710f0c4e5d502f510e32b4e1eb40fe5d1c9",
+        "0xf5355c959d713d05c68a334709e866def3f961e0",
+        "0xf6624aed5bcae96787200326c884b290dec0c3f5",
+        "0xf8caac47a8472779fe0f2d60ab7115dcea680c76",
+        "0xfbf450fe45475aa111f64b9b3e02807ac3a8538a"
+      ],
+      "$note": "Sarthak 2026-09-10: +5 tickets, once per wallet, for ANOTHER trade placed today between 15:50Z and 16:55Z - minted for tonight's 17:00Z draw #170. Window opens at the grant, so a fill from earlier today does not trigger it. Team + risk cohort excluded."
+    },
+    {
+      "id": "traded-today-plus3-draw170-2026-09-10",
+      "usd": 3.0,
+      "requires": "traded-between",
+      "fromMs": 1788998400000,
+      "toMs": 1789059300000,
+      "grantUntilMs": 1789059420000,
+      "excludeWallets": [
+        "0x9cc6c5d8318c69b602b866f644628e61d98f55ed",
+        "0xc6b45831511cd908f85765c0003a96d4f1adec93",
+        "0x3919be84e2a75c03aa6ef2e82dda9419572c9464",
+        "0x4be573b29944e2676da8cddeab7677b1519eb272",
+        "0x024a8cbc7107f44374d85f7a79cce4bd4348989f",
+        "0x3b16aff655a005c3f8e7603953e22d08bfd3f192",
+        "0x3cfdb468ae18b8eba32a56b8935e17a340b42989",
+        "0x4040f7dda4e8bbb34a583403e003ac14b14d868b",
+        "0x527e3e27e603367ca0178c4c4f6a18a943d8cd30",
+        "0x532e46cbccd3f0bb821ba6fc173474c8dcfa1d2b",
+        "0x580e8d091c2c0beaaa355260f72e2bbb52a7ede6",
+        "0x6b2119eb7898683f483a47f98fc4d35852d4d09c",
+        "0x73644a9eb01d848501f56364f4501b4a85d3914f",
+        "0x8273cbd869b1f24f45212256ff1aadbb45e0d935",
+        "0x8e9012744862933cf778b7005444e3739bf116bc",
+        "0xa28d2d57a9d0a0194489e3d99a21de782a785aed",
+        "0xa810741d079af287b674be789f577e2585ea1045",
+        "0xb9428b03aaa13beb63ae94d8224d57ea33ac711c",
+        "0xc1f94710f0c4e5d502f510e32b4e1eb40fe5d1c9",
+        "0xf5355c959d713d05c68a334709e866def3f961e0",
+        "0xf6624aed5bcae96787200326c884b290dec0c3f5",
+        "0xf8caac47a8472779fe0f2d60ab7115dcea680c76",
+        "0xfbf450fe45475aa111f64b9b3e02807ac3a8538a",
+        "0x51755c1f8c6955fb09685714379bf64db16e2e38"
+      ],
+      "$note": "Sarthak 2026-09-10: +3 tickets to every wallet that traded today (00:00Z-16:55Z), excluding James (0x51755c1f), Sarthak and Ivan - the team + risk cohort list plus James. Stacks with the +5 above: a wallet that traded earlier AND trades again tonight receives 8."
     }
   ],
   "$multipliers": "DECIDED 2026-09-03: tiers are KICKERS on top of base minting - 2x = +25% credit on qualifying volume, 3x = +50%, 4x = +75%, 5x = +100% (200% of fees back). Tiers unlock on thesis-basket VOLUME (entry $1,000 per the rules doc). The $2,500/$5,000/$10,000 rungs for 3x-5x are proposed defaults pending final sign-off. Tiers activate when basket tracking goes live; base rate applies until then.",
