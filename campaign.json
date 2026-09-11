@@ -761,12 +761,15 @@
     "packCounter": {
       "total": 200,
       "startUsed": 41
-    }
+    },
+    "poolWallet": "0xBC54e516405A959746E3531d81Ea656DCc687A82",
+    "$poolWallet": "the wallet that BUYS and FORWARDS tickets. The hub needs it to look a forwarded ticket's numbers up at the venue (which files a transferred ticket under its original recipient); without it every Megapot-funded ticket rendered as a blank '0?' row. Public by construction - it is the sender of every buy on Base."
   },
   "retro": {
     "enabled": true,
     "ticketNft": "0x48ffe35abb9f4780a4f1775c2ce1c46185b366e4",
-    "$note": "Megapot mints 12 tickets/day to the pool wallet; the engine transfers pool-held tickets of the ACTIVE round to users before buying with USDC"
+    "$note": "Megapot mints 12 tickets/day to the pool wallet; the engine transfers pool-held tickets of the ACTIVE round to users before buying with USDC",
+    "poolWallet": "0xBC54e516405A959746E3531d81Ea656DCc687A82"
   },
   "riskCohort": {
     "$note": "ROI-positive treatment for suspected farm accounts (2026-09-04 HK cluster: 15 accounts created within 40 min, identical $252 trades). Applies to listed wallets AND any wallet whose feed country is listed. First mint needs firstTradeMinUsd of qualifying volume (not the normal minTradeUsd). Free tickets (streak boxes, streak checkpoints, blanket grants) only convert once Hence's fees earned from the wallet cover roiMultiple x every free ticket it has already received (packs included) - so the cohort pays for itself before it is paid.",
