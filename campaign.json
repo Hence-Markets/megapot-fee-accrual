@@ -490,7 +490,7 @@
     },
     {
       "id": "new-trader-plus3-2026-09-07",
-      "usd": 3.0,
+      "usd": 1.0,
       "requires": "traded",
       "fromDate": "2026-09-07",
       "excludeWallets": [
@@ -518,7 +518,7 @@
         "0xf8caac47a8472779fe0f2d60ab7115dcea680c76",
         "0xfbf450fe45475aa111f64b9b3e02807ac3a8538a"
       ],
-      "$note": "Sarthak 2026-09-07 16:50Z: STANDING +3 tickets to every NEW trader - a wallet whose first ever Hence trade (ledger day map, season volume, or the feed's firstFillMs) is on/after 2026-09-07 UTC. Stacks on top of the activation pack. Once per wallet, no end date (remove this entry to stop it). Team wallets + HK risk cohort excluded; geo not consulted (the feed decides enrolment)."
+      "$note": "Sarthak 2026-09-11: the standing first-trade bonus is now +1 ticket (was +3, and it stacked with new-trader-plus2-draw168 for +5 - that entry is deleted). The id is HISTORICAL and must never be renamed: it is the per-wallet ledger key, so a new id would pay every wallet that already took this grant a second time. Wallets already credited keep what they received; only wallets not yet credited get the new amount."
     },
     {
       "id": "random-trade-today-2026-09-07",
@@ -589,38 +589,6 @@
         "0xfbf450fe45475aa111f64b9b3e02807ac3a8538a"
       ],
       "$note": "Sarthak 2026-09-08: +1 ticket to EVERY non-team wallet that traded on Hence today (00:00Z to 16:55Z), minted for tonight's 17:00Z draw #168. Once per wallet; fills consumed before this grant existed still count via ws.lastFillMs. Team + risk cohort excluded."
-    },
-    {
-      "id": "new-trader-plus2-draw168-2026-09-08",
-      "usd": 2.0,
-      "requires": "traded",
-      "fromDate": "2026-09-08",
-      "excludeWallets": [
-        "0x9cc6c5d8318c69b602b866f644628e61d98f55ed",
-        "0xc6b45831511cd908f85765c0003a96d4f1adec93",
-        "0x3919be84e2a75c03aa6ef2e82dda9419572c9464",
-        "0x4be573b29944e2676da8cddeab7677b1519eb272",
-        "0x024a8cbc7107f44374d85f7a79cce4bd4348989f",
-        "0x3b16aff655a005c3f8e7603953e22d08bfd3f192",
-        "0x3cfdb468ae18b8eba32a56b8935e17a340b42989",
-        "0x4040f7dda4e8bbb34a583403e003ac14b14d868b",
-        "0x527e3e27e603367ca0178c4c4f6a18a943d8cd30",
-        "0x532e46cbccd3f0bb821ba6fc173474c8dcfa1d2b",
-        "0x580e8d091c2c0beaaa355260f72e2bbb52a7ede6",
-        "0x6b2119eb7898683f483a47f98fc4d35852d4d09c",
-        "0x73644a9eb01d848501f56364f4501b4a85d3914f",
-        "0x8273cbd869b1f24f45212256ff1aadbb45e0d935",
-        "0x8e9012744862933cf778b7005444e3739bf116bc",
-        "0xa28d2d57a9d0a0194489e3d99a21de782a785aed",
-        "0xa810741d079af287b674be789f577e2585ea1045",
-        "0xb9428b03aaa13beb63ae94d8224d57ea33ac711c",
-        "0xc1f94710f0c4e5d502f510e32b4e1eb40fe5d1c9",
-        "0xf5355c959d713d05c68a334709e866def3f961e0",
-        "0xf6624aed5bcae96787200326c884b290dec0c3f5",
-        "0xf8caac47a8472779fe0f2d60ab7115dcea680c76",
-        "0xfbf450fe45475aa111f64b9b3e02807ac3a8538a"
-      ],
-      "$note": "Sarthak 2026-09-08: +2 tickets for FIRST-TIME traders - wallets whose first ever trade lands on/after 2026-09-08 UTC. Stacks on new-trader-plus3-2026-09-07 (+3) and on trade-today-draw168 (+1), so a brand-new trader tonight receives 6. STANDING until this entry is deleted - remove after the draw unless Sarthak wants it to run."
     },
     {
       "id": "trade-again-tonight-draw170-2026-09-10",
