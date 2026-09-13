@@ -125,3 +125,15 @@ test('usdRange: whole-dollar draw within [lo, hi]; a range-only grant is valid; 
   assert.equal(blanketGrantsDue(nt({ lastFillMs: 5 }), [g], { wallet: '0xa', nowMs: 10 }).length, 1, 'range-only grant is evaluated');
   assert.equal(blanketGrantsDue(nt({ lastFillMs: 5 }), [{ ...g, excludeWallets: ['0xA'] }], { wallet: '0xa', nowMs: 10 }).length, 0, 'excludeWallets is case-insensitive');
 });
+
+test('excludeCountries withholds a promo from a jurisdiction without geo-denying the wallet', () => {
+  const g = [{ id: 'promo', usd: 2, requires: 'traded', excludeCountries: ['AU'] }];
+  const ws = { volumeUsd: 500, days: { '2026-09-13': 500 } };
+  const at = { vol: 500, today: '2026-09-13', wallet: '0xa' };
+  assert.equal(blanketGrantsDue(ws, g, { ...at, country: 'AU' }).length, 0, 'excluded country takes nothing');
+  assert.equal(blanketGrantsDue(ws, g, { ...at, country: 'au' }).length, 0, 'case-insensitive');
+  assert.equal(blanketGrantsDue(ws, g, { ...at, country: 'IN' }).length, 1, 'another country is paid');
+  /* an unread header must never cost a user their ticket */
+  assert.equal(blanketGrantsDue(ws, g, { ...at, country: null }).length, 1, 'unknown country is paid');
+  assert.equal(blanketGrantsDue(ws, g, { ...at, country: 'ZZ' }).length, 1, 'ZZ is unknown, not a country');
+});

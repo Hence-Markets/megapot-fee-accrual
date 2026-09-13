@@ -30,6 +30,9 @@
 //                         trade (ledger day map, season volume, or the feed's firstFillMs) is on/
 //                         after this UTC date. The opposite of beforeDate; combine neither.
 //   excludeWallets       -> honoured by EVERY grant type (team wallets, risk cohort).
+//   excludeCountries     -> ISO-2 list the grant is withheld from, on the feed's country for the
+//                         wallet. Unknown country is never excluded. Withholding a PROMO is not
+//                         a geo block: the wallet keeps earning, it just does not take this one.
 //   usdRange: [lo, hi]   -> instead of a fixed `usd`, the engine draws a whole-dollar amount
 //                         uniformly in [lo, hi] when it credits (grantUsd below), once per wallet;
 //                         the drawn amount is what the ledger records.
@@ -58,13 +61,19 @@ export function grantUsd(g, rng = Math.random) {
 }
 const grantValid = (g) => !!g && !!g.id && (Number(g.usd) > 0 || grantUsd(g, () => 0) > 0);
 
-export function blanketGrantsDue(ws, grants, { vol = 0, today, firstFillMs = 0, wallet = '', nowMs = Date.now(), usedUsers = {} } = {}) {
+export function blanketGrantsDue(ws, grants, { vol = 0, today, firstFillMs = 0, wallet = '', country = null, nowMs = Date.now(), usedUsers = {} } = {}) {
   const out = [];
   const w = String(wallet || '').toLowerCase();
   for (const g of grants || []) {
     if (!grantValid(g)) continue;
     if (ws.opsGrants && ws.opsGrants[g.id]) continue;
     if (Array.isArray(g.excludeWallets) && g.excludeWallets.some((x) => String(x).toLowerCase() === w)) continue;
+    /* excludeCountries: the feed's country for this wallet (ZZ/absent = unknown). A promo may be
+       withheld from a jurisdiction without geo-denying it outright - the wallet keeps earning
+       normally, it just does not take this grant. Unknown country is NEVER excluded: we do not
+       punish a user for a header we failed to read. */
+    const cc = country ? String(country).toUpperCase() : '';
+    if (Array.isArray(g.excludeCountries) && cc && g.excludeCountries.some((c) => String(c).toUpperCase() === cc)) continue;
     if (g.requires === 'traded-between') {
       const from = Number(g.fromMs) || 0, to = Number(g.toMs) || Infinity;
       if (Array.isArray(g.wallets) && g.wallets.length && !g.wallets.some((x) => String(x).toLowerCase() === w)) continue;

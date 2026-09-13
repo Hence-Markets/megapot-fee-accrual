@@ -474,7 +474,7 @@ async function accrueInner(only = null) {
       console.log(`${w} ops grant '${g.id}': +$${Number(g.usd).toFixed(2)} credit`);
     }
     // blanket grants: campaign-wide one-time credit (e.g. "+2 to everyone who traded by <date>")
-    for (const g of blanketGrantsDue(ws, cfg.BLANKET_GRANTS, { vol, today: new Date().toISOString().slice(0, 10), firstFillMs: firstFillOf(w), wallet: w, nowMs: Date.now(), usedUsers: (s.blanketUsers ??= {}) })) {
+    for (const g of blanketGrantsDue(ws, cfg.BLANKET_GRANTS, { vol, today: new Date().toISOString().slice(0, 10), firstFillMs: firstFillOf(w), wallet: w, country: countryOf(w), nowMs: Date.now(), usedUsers: (s.blanketUsers ??= {}) })) {
       const usd = grantUsd(g);   // fixed usd, or a whole-dollar draw from usdRange (recorded as drawn)
       if (risk) {
         const priceUsd = s.lastPriceUsd || 1;
