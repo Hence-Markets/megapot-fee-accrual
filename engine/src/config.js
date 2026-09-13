@@ -166,6 +166,10 @@ export const cfg = {
   PRIORITY_FEE_WEI: 500_000n,                        // 0.0005 gwei tip
   // Hyperliquid info calls per minute across the full sweep + fast lane (token bucket)
   HL_RPM: Number(process.env.HL_RPM || 50),
+  // tiered sweep (safety.js sweepTargets): how recently a wallet must have traded to be polled
+  // every cycle, and the per-cycle call budget the dormant rotation is allowed to fill
+  SWEEP_HOT_MS: Number(process.env.SWEEP_HOT_MS || 48 * 3600_000),
+  SWEEP_BUDGET: Number(process.env.SWEEP_BUDGET || 60),
   // Customer.io Track credentials - comms events; missing = integration off
   CIO_SITE_ID: process.env.CUSTOMERIO_SITE_ID || '',
   CIO_TRACK_KEY: process.env.CUSTOMERIO_TRACK_KEY || '',
