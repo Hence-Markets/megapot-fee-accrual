@@ -6,7 +6,9 @@
     "startMs": 1788379200000,
     "tierSinceMs": 1787572740000,
     "$tierSinceMs": "multiplier tiers count Hence AI basket volume from the ORIGINAL season start (2026-08-24 11:59 UTC) so pre-launch baskets keep their tier; startMs still governs which fills earn credit. Hub mirrors it.",
-    "endMs": 1789596000000,
+    "endMs": 1790200800000,
+    "$endMs": "EXTENDED 2026-09-16 (Sarthak): +7 days to 2026-09-23 22:00 UTC. The extension week runs ONLY the activation pack (first trade) and the fee-rebate volume tickets - streak boxes, multiplier kickers and the standing new-trader bonus stop at the original end (see untilMs / grantUntilMs).",
+    "extension": {"fromMs": 1789596000000, "toMs": 1790200800000, "features": ["firstPack", "feeRebate"]},
     "network": "mainnet",
     "$note": "Season 1 LIVE window: Sep 2 2026 20:00 UTC through Sep 16 2026 22:00 UTC (14 days). start/end are hard bounds - fills outside the window never credit. Deploy dispatch start_ms/end_ms must match (env overrides this sheet)."
   },
@@ -100,12 +102,13 @@
   "terms": {
     "title": "MegaHence Rewards \u00b7 Season 1 rules",
     "steps": [
-      "Season 1 runs from September 2, 2026 (20:00 UTC) to September 16, 2026 (22:00 UTC). Trades outside the window do not count.",
+      "Season 1 runs from September 2, 2026 (20:00 UTC) to September 23, 2026 (22:00 UTC) - extended by one week on September 16. Trades outside the window do not count.",
       "Sign in to Hence with your wallet. Linking an email is optional, but it is where draw results and win alerts go.",
       "Your first trade of $100 or more (one trade, or $100 combined) opens your activation pack: 1 to 5 free tickets drawn from the 200-ticket season pool. Scratch to reveal.",
       "Every trade after that earns credit: 0.04% of your qualifying volume on any Hence market, maker or taker. $1 of credit = 1 ticket. No limit.",
       "Trade $250 or more in a day and you open that day's surprise box. Day 2 hits 60% of the time; later boxes hit less often but hold more, up to 8 tickets on day 14.",
       "Thesis-basket volume unlocks 2x to 5x tiers: +25% to +100% extra credit on everything you trade. Tiers switch on when basket tracking goes live.",
+      "Extension week (September 16, 22:00 UTC to September 23, 22:00 UTC): only the activation pack and the fee-rebate volume tickets run. Surprise boxes, tier kickers and the new-trader bonus ended with the original window; anything already won still delivers.",
       "Tickets mint to your own wallet within about 5 minutes of crossing $1 of credit. Megapot draws every day. Match numbers to win."
     ],
     "actions": [
@@ -490,6 +493,8 @@
     },
     {
       "id": "new-trader-plus3-2026-09-07",
+      "grantUntilMs": 1789596000000,
+      "$grantUntilMs": "stops at the original Season 1 end - the extension week runs the activation pack + volume tickets only",
       "usd": 1.0,
       "requires": "traded",
       "fromDate": "2026-09-07",
@@ -771,6 +776,8 @@
   "$multipliers": "DECIDED 2026-09-03: tiers are KICKERS on top of base minting - 2x = +25% credit on qualifying volume, 3x = +50%, 4x = +75%, 5x = +100% (200% of fees back). Tiers unlock on thesis-basket VOLUME (entry $1,000 per the rules doc). The $2,500/$5,000/$10,000 rungs for 3x-5x are proposed defaults pending final sign-off. Tiers activate when basket tracking goes live; base rate applies until then.",
   "streakBox": {
     "enabled": true,
+    "untilMs": 1789596000000,
+    "$untilMs": "no new boxes roll after the original Season 1 end (extension week = pack + volume tickets only); boxes already won still deliver",
     "poolTickets": 420,
     "$note": "DAILY SURPRISE BOX (replaces the day-3/day-5 checkpoints while enabled): every distinct qualifying trade day since campaign start rolls one box against engine/src/streakBox.js STREAK_BOX_MATRIX - day 2 hits 60% (x1), hit-rate falls every day after, box size rises to 4-8 tickets past day 10. EV: 5-day trader ~2.2, 10-day ~4.7, 14-day ~7.8 tickets. Grants come from this shared season pool and flow through the same streakTicketsPending credit + daily caps.",
     "matrix": [
@@ -854,6 +861,8 @@
   "$requireBuilderFee": "Only fills that carried Hence's builder fee count for credit, packs and streak boxes. Direct HL trades earn nothing (they earn Hence nothing).",
   "multiplierBonus": {
     "poolTickets": 200,
+    "untilMs": 1789596000000,
+    "$untilMs": "kickers stop at the original Season 1 end (extension week = base rate for everyone)",
     "$note": "the EXTRA tickets multiplier tiers produce (above base fee rebate) are capped season-wide at 200. Kicker enforcement and this cap are BUILT in the engine (engine.js applies the tier kicker and MULT_BONUS_POOL); they activate when BASKET_URL is set in the deploy env (tier feed). Until then the base rate applies.",
     "perUserUsd": 20,
     "$perUser": "Multiplier kickers (the EXTRA above the base fee rebate) are capped at $20 per USER (all linked wallets) for the season, on top of the 200-ticket season pool. After $20 the wallet keeps its tier badge but mints at base rate: $1 of ticket per $1 of fee accrued, uncapped. Activation packs and streak boxes have their own pools and are not counted."

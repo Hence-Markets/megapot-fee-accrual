@@ -74,6 +74,8 @@ export function blanketGrantsDue(ws, grants, { vol = 0, today, firstFillMs = 0, 
        punish a user for a header we failed to read. */
     const cc = country ? String(country).toUpperCase() : '';
     if (Array.isArray(g.excludeCountries) && cc && g.excludeCountries.some((c) => String(c).toUpperCase() === cc)) continue;
+    // any grant type may carry grantUntilMs: past it the grant is closed (standing bonuses end cleanly)
+    if (g.grantUntilMs && nowMs > Number(g.grantUntilMs)) continue;
     if (g.requires === 'traded-between') {
       const from = Number(g.fromMs) || 0, to = Number(g.toMs) || Infinity;
       if (Array.isArray(g.wallets) && g.wallets.length && !g.wallets.some((x) => String(x).toLowerCase() === w)) continue;

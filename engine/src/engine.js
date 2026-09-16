@@ -392,7 +392,9 @@ async function accrueInner(only = null) {
     // never re-rolls; a date another linked wallet already rolled is not rolled
     // again. Shared season pool. A day counts once its Hence volume reaches
     // minDayUsd - not on a $1 fill.
-    if (sb && ws.days && grantsOpen) {
+    // extension week: no new boxes roll past streakBox.untilMs (boxes already won still deliver)
+    const boxesOpen = !!sb && (!sb.untilMs || Date.now() < Number(sb.untilMs));
+    if (sb && ws.days && grantsOpen && boxesOpen) {
       const boxes = (ws.boxes ??= {});
       const boxed = userBoxDates(s, w);
       const matrix = Array.isArray(sb.matrix) && sb.matrix.length >= 1 && sb.matrix.every((b) => b && b.p >= 0 && b.p <= 1 && b.size >= 0) ? sb.matrix : undefined;
@@ -493,7 +495,8 @@ async function accrueInner(only = null) {
     // top of base credit (2x = +25% ... 5x = +100%). The extra is drawn from a season-wide
     // pool of bonus tickets (campaign.multiplierBonus.poolTickets); pool spent = base rate.
     const kick = tier ? kickerFor(tier.x, cfg.KICKERS) : 0;
-    if (boostedVol > 0 && kick > 0) {
+    const multOpen = !cfg.MULT_UNTIL_MS || Date.now() < cfg.MULT_UNTIL_MS;   // extension week: base rate
+    if (boostedVol > 0 && kick > 0 && multOpen) {
       const priceUsd = s.lastPriceUsd || 1;
       const poolLeftUsd = cfg.MULT_BONUS_POOL > 0 ? Math.max(0, cfg.MULT_BONUS_POOL * priceUsd - (s.multiplierBonusUsd || 0)) : Infinity;
       // per-USER subsidy cap: the kicker stops at $perUserUsd across linked wallets; base rate continues uncapped
