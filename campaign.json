@@ -70,6 +70,8 @@
     "$globalBudgetUsdc": "SEASON 1 BUDGET (Sarthak, 2026-09-02): 820+ tickets seeded into the pool wallet = 200 activation packs (FCFS) + 420 streak boxes (30/day x 14) + 200 multiplier rebate cap; trading-fee rebate is UNCAPPED and topped up daily. This ceiling is a spend safety stop, not the budget: keep it above wallet balance and raise it with each top-up (deploy dispatch budget_usdc overrides; LIVE dispatch 2026-09-03: budget_usdc=1500). Retro: Megapot sends 12 tickets/day to the pool wallet (168 over the season) as NFTs, not USDC - they are handed out by the retro transfer path (see `retro`) and do not count against this USDC ceiling.",
     "$retroTickets": "Megapot's 12 tickets/day land in the pool wallet as TicketNFTs (inventory, not USDC). With retro.enabled the engine transfers pool-held tickets of the ACTIVE round to users to settle credit BEFORE buying with USDC (RETRO_TRANSFERS=1, TICKET_NFT in the deploy env). Tickets from a closed round cannot be handed out and stay in stock. See `retro` below."
   },
+  "voidCredit": [{"id": "void-au-2026-09-18", "countries": ["AU"]}],
+  "$voidCredit": "2026-09-18 (Sarthak): ONE-SHOT per id - wallets whose feed country is listed lose their outstanding ticket credit and pending pack/box tickets (Australia is a Megapot-prohibited region). Recorded on the ledger (ws.voided[id]); the freed pool funds serve the rest of the queue.",
   "firstTradeBonus": {
     "countryPackCap": {"LK": 1},
     "$countryPackCap": "2026-09-18 (Sarthak): activation packs for wallets whose feed country is Sri Lanka are capped at 1 ticket. ISO-2 -> max tickets; applies only to packs not yet granted. Country comes from the backend user feed (live/stamped IP country); unknown country = no cap.",

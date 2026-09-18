@@ -752,6 +752,15 @@ async function buyInner(only = null, rateLimited = new Set()) {
   for (const w of list) {
    try {
     const ws = wstate(s, w);
+    // one-shot credit void by feed country (campaign.voidCredit) - audited on the ledger
+    for (const v of cfg.VOID_CREDIT) {
+      const cc = String(countryOf(w) || '').toUpperCase();
+      if (!v?.id || !cc || !(v.countries || []).map((x) => String(x).toUpperCase()).includes(cc) || (ws.voided ??= {})[v.id]) continue;
+      const rec = { at: Date.now(), country: cc, creditUsd: +(ws.creditUsdc || 0).toFixed(4), streak: ws.streakTicketsPending || 0, bonus: ws.bonusTicketsPending || 0 };
+      ws.voided[v.id] = rec; ws.creditUsdc = 0; ws.streakTicketsPending = 0; ws.bonusTicketsPending = 0;
+      console.log(`${w} VOIDED '${v.id}' (${cc}): $${rec.creditUsd} credit, ${rec.streak} box + ${rec.bonus} pack ticket(s) removed`);
+      save(s);
+    }
     if (ws.streakTicketsPending > 0) {
       // risk cohort: streak tickets release only as fees earned cover them (ROI-positive)
       const risk = riskOf(w);

@@ -15,8 +15,10 @@ export function buyGasFor(count) {
 export const GAS_PER_BUY = buyGasFor(MAX_PER_BUY_GAS);      // the largest buy the engine sends
 export const ALERT_GAP_MS = 60 * 60_000;              // at most one alert of a kind per hour
 
-/** ETH the pool wallet must keep so three buys can still be sent at the fee cap */
-export function gasReserveWei(maxFeeWei) { return GAS_PER_BUY * BigInt(maxFeeWei) * 3n; }
+/** ETH the pool wallet must keep so TWO buys can still be sent at the fee cap (was three:
+ *  2026-09-18 the wallet sat 0.000002 ETH under a 0.00054 reserve and froze the whole queue
+ *  while holding ~100x the real cost of a buy) */
+export function gasReserveWei(maxFeeWei) { return GAS_PER_BUY * BigInt(maxFeeWei) * 2n; }
 
 /** balances (bigint, base units) vs one ticket at `priceUnits` + the gas reserve */
 export function lowFunds({ usdc, eth, priceUnits, maxFeeWei }) {
