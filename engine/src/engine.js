@@ -371,7 +371,10 @@ async function accrueInner(only = null) {
               for (const [k, n] of entries) { if (pick < n) { size = Number(k); break; } pick -= n; }
               slots[size] -= 1;
             }
-            const grant = Math.min(size, poolLeft);
+            // per-country pack cap (firstTradeBonus.countryPackCap, ISO-2 -> max tickets)
+            const ccap = Number((ft.countryPackCap || {})[String(countryOf(w) || '').toUpperCase()] || 0);
+            if (ccap > 0 && size > ccap) console.log(`${w} activation pack capped ${size} -> ${ccap} (country ${countryOf(w)})`);
+            const grant = Math.min(size, poolLeft, ccap > 0 ? ccap : Infinity);
             ws.bonusTicketsPending = (ws.bonusTicketsPending || 0) + grant;
             s.firstTradePoolUsed = (s.firstTradePoolUsed || 0) + grant;
             console.log(`${w} activation pack: drew ${grant} ticket(s) (qualifying fill $${ws.packQualifiedUsd.toFixed(2)}, pool ${s.firstTradePoolUsed}/${ft.poolTickets}, slots left ${Math.max(0, slotsLeft - 1)})`);

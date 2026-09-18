@@ -71,6 +71,8 @@
     "$retroTickets": "Megapot's 12 tickets/day land in the pool wallet as TicketNFTs (inventory, not USDC). With retro.enabled the engine transfers pool-held tickets of the ACTIVE round to users to settle credit BEFORE buying with USDC (RETRO_TRANSFERS=1, TICKET_NFT in the deploy env). Tickets from a closed round cannot be handed out and stay in stock. See `retro` below."
   },
   "firstTradeBonus": {
+    "countryPackCap": {"LK": 1},
+    "$countryPackCap": "2026-09-18 (Sarthak): activation packs for wallets whose feed country is Sri Lanka are capped at 1 ticket. ISO-2 -> max tickets; applies only to packs not yet granted. Country comes from the backend user feed (live/stamped IP country); unknown country = no cap.",
     "minTradeUsd": 100,
     "poolTickets": 241,
     "$note": "activation pack: account + email + first qualifying trade >= minTradeUsd ($100) opens a pack of 1-5 tickets DRAWN AT RANDOM from a fixed season pool - 150 pack slots totalling exactly 200 tickets, drawn without replacement (odds at launch: 76.0% / 17.3% / 4.7% / 1.3% / 0.7%). The draw depletes s.packSlots in the ledger, so odds drift as slots fill and the pool can never overshoot. dailyMintCap still paces minting per UTC day. QUALIFICATION: one fill >= minTradeUsd ($100) OR combined in-window volume >= minTradeUsd ($100).",
