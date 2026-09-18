@@ -4,9 +4,9 @@ import { gasReserveWei, lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheF
 
 const GWEI = 1_000_000_000n;
 
-test('low funds: one ticket of USDC and three buys of gas at the fee cap', () => {
+test('low funds: one ticket of USDC and two buys of gas at the fee cap', () => {
   const maxFeeWei = 18_000_000n;                                   // 0.018 gwei
-  assert.equal(gasReserveWei(maxFeeWei), GAS_PER_BUY * maxFeeWei * 3n);
+  assert.equal(gasReserveWei(maxFeeWei), GAS_PER_BUY * maxFeeWei * 2n);
   const ok = lowFunds({ usdc: 5_000_000n, eth: 10n ** 18n, priceUnits: 1_000_000n, maxFeeWei });
   assert.equal(ok.low, false);
   const noUsdc = lowFunds({ usdc: 999_999n, eth: 10n ** 18n, priceUnits: 1_000_000n, maxFeeWei });
