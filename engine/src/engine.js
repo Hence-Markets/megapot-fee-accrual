@@ -761,6 +761,21 @@ async function buyInner(only = null, rateLimited = new Set()) {
       console.log(`${w} VOIDED '${v.id}' (${cc}): $${rec.creditUsd} credit, ${rec.streak} box + ${rec.bonus} pack ticket(s) removed`);
       save(s);
     }
+    // one-shot make-good on a void (voidCredit[].makeGood): a wallet that lost at least minUsd gets a
+    // fixed, small ticket count back - never the full amount
+    for (const v of cfg.VOID_CREDIT) {
+      const rec = v?.makeGood && ws.voided?.[v.id];
+      if (!rec || rec.madeGood) continue;
+      const lost = Number(rec.creditUsd || 0) + (Number(rec.streak || 0) + Number(rec.bonus || 0)) * priceUsd;
+      const n = lost >= Number(v.makeGood.minUsd || 1) ? Math.max(0, Math.floor(Number(v.makeGood.tickets || 0))) : 0;
+      rec.madeGood = { at: Date.now(), tickets: n };
+      if (n > 0) {
+        ws.creditUsdc += n * priceUsd;
+        noteFree(ws, n, priceUsd);
+        console.log(`${w} MAKE-GOOD '${v.id}': ${n} ticket(s) credited (void removed $${lost.toFixed(2)})`);
+      }
+      save(s);
+    }
     if (ws.streakTicketsPending > 0) {
       // risk cohort: streak tickets release only as fees earned cover them (ROI-positive)
       const risk = riskOf(w);
