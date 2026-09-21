@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { gasReserveWei, lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak, GAS_PER_BUY } from '../src/safety.js';
+import { gasReserveWei, lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, sweepTargets, accrueSkipStreak, GAS_PER_BUY } from '../src/safety.js';
 
 const GWEI = 1_000_000_000n;
 
@@ -78,4 +78,28 @@ test('shipped fee defaults sit above Base median base fee', async () => {
   // a delivery at the ceiling stays cheap against a $1 ticket
   const worstCaseEth = Number(cfg.MAX_FEE_CEILING_WEI) * 60_000 / 1e18;
   assert.ok(worstCaseEth < 0.0001, `worst-case transfer ${worstCaseEth} ETH must stay under 0.0001`);
+});
+
+test('tiered sweep: new and active wallets every cycle, dormant ones in rotation', () => {
+  const now = 1789300000000, day = 86400000;
+  const wallets = ['0xnew', '0xhot', '0xwarm', ...Array.from({ length: 200 }, (_, i) => `0xcold${i}`)];
+  const state = { wallets: { '0xhot': { lastAccrueMs: now - 60_000, lastFillMs: now - 3600_000 },
+                             '0xwarm': { lastAccrueMs: now - day, lastMintMs: now - day },
+                             ...Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`0xcold${i}`, { lastAccrueMs: now - 9 * day, lastFillMs: now - 9 * day }])) } };
+  const t = sweepTargets(wallets, state, { nowMs: now, budget: 20, cycle: 0 });
+  assert.equal(t.fresh, 1, 'the wallet with no ledger row is new');
+  assert.equal(t.hot, 2, 'traded or minted inside the window');
+  assert.ok(t.targets.includes('0xnew') && t.targets.includes('0xhot') && t.targets.includes('0xwarm'));
+  assert.equal(t.targets.length, 20, 'the pass fits the budget');
+  /* a new wallet is NEVER left out, however many dormant ones there are: its first ticket is
+     the moment a user is watching (the 19-minute first mint, 2026-09-13) */
+  const tiny = sweepTargets(wallets, state, { nowMs: now, budget: 2, cycle: 0 });
+  assert.ok(tiny.targets.includes('0xnew') && tiny.targets.includes('0xhot'));
+  /* the dormant tail still comes round: different cycles sweep different wallets */
+  const a = sweepTargets(wallets, state, { nowMs: now, budget: 20, cycle: 1 }).targets.filter((w) => w.startsWith('0xcold'));
+  const b = sweepTargets(wallets, state, { nowMs: now, budget: 20, cycle: 2 }).targets.filter((w) => w.startsWith('0xcold'));
+  assert.notDeepEqual(a, b, 'the rotation moves');
+  const seen = new Set();
+  for (let c = 0; c < 20; c++) for (const w of sweepTargets(wallets, state, { nowMs: now, budget: 20, cycle: c }).targets) seen.add(w);
+  assert.equal(seen.size, wallets.length, 'every wallet is swept within a few cycles');
 });

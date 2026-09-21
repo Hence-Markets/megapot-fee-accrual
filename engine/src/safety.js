@@ -61,6 +61,38 @@ export function rotate(list, offset) {
   return list.slice(k).concat(list.slice(0, k));
 }
 
+/* TIERED SWEEP - who the full cycle asks Hyperliquid about.
+ *
+ * Every enrolled wallet used to be polled every cycle. At 274 wallets against a 50 req/min
+ * budget one pass takes ~5.5 min, so a wallet's fill waited up to a full pass to be seen:
+ * measured 2026-09-13, the fast lane's wallets minted in ~36s (p50) while a brand-new trader
+ * - not yet in the fast-lane feed - waited 19 minutes for its first ticket.
+ *
+ * Almost none of those calls can return anything: a wallet that has not traded in days has no
+ * new fills. So spend the budget where fills actually are:
+ *   HOT   traded within hotMs (default 48h) -> every cycle
+ *   NEW   never accrued -> every cycle, until it has been seen once (a first ticket is the
+ *         moment that matters most, and there are only ever a handful)
+ *   COLD  everything else -> a rotating slice, so each is still swept within a few cycles and
+ *         a late-arriving or back-dated fill is never lost
+ * The slice is sized so the whole pass fits in `budget` calls; with a small hot set the cycle
+ * finishes in well under a minute instead of five and a half.
+ */
+export function sweepTargets(wallets, state, { nowMs = Date.now(), hotMs = 48 * 3600_000, budget = 60, cycle = 0 } = {}) {
+  const rowOf = (w) => state?.wallets?.[w] || null;
+  const hot = [], fresh = [], cold = [];
+  for (const w of wallets) {
+    const r = rowOf(w);
+    if (!r || !r.lastAccrueMs) { fresh.push(w); continue; }
+    const seen = Math.max(Number(r.lastFillMs) || 0, Number(r.lastMintMs) || 0);
+    (nowMs - seen <= hotMs ? hot : cold).push(w);
+  }
+  const must = fresh.concat(hot);
+  const room = Math.max(0, budget - must.length);
+  const slice = room > 0 && cold.length ? rotate(cold, cycle * room).slice(0, room) : [];
+  return { targets: must.concat(slice), hot: hot.length, fresh: fresh.length, cold: cold.length, coldSwept: slice.length };
+}
+
 /** consecutive-cycle skip streak: alert once the third cycle in a row skipped wallets */
 export function accrueSkipStreak(prevStreak, skipped) {
   const streak = skipped > 0 ? (prevStreak || 0) + 1 : 0;

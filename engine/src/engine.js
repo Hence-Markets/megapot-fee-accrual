@@ -17,7 +17,7 @@ import { filterInventory, allocateRetro, grantBody, attributeTransferredWins, tr
 import { enqueue, enqueueStatus, due, afterAttempt, skipLegs } from './outbox.js';
 import { parseRows, userPackGranted, userCapLeft, userCapRoom, userBoxDates, userWallets } from './users.js';
 import { perUserBonusLeft } from './subsidy.js';
-import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, accrueSkipStreak, buyGasFor } from './safety.js';
+import { lowFunds, feeCapFor, feeSpike, shouldAlert, shouldCacheFeed, rotate, sweepTargets, accrueSkipStreak, buyGasFor } from './safety.js';
 import { blanketGrantsDue, grantUsd } from './grants.js';
 import { riskRulesFor, roiRoomTickets, noteFree, roiLine, seedFreeIfNew } from './risk.js';
 import { fileBucket, backoffMs } from './ratelimit.js';
@@ -284,7 +284,15 @@ async function accrueInner(only = null) {
   // full sweeps start at a different wallet each cycle so a rate-limited tail rotates
   const fullSweep = !only;
   if (fullSweep) s.accrueCycle = (s.accrueCycle || 0) + 1;
-  const accrueTargets = rotate(only ? eligibleWallets().filter((x) => only.has(x)) : eligibleWallets(), fullSweep ? s.accrueCycle : 0);
+  /* the fast lane's `only` set is already the hot set; a full sweep is TIERED (safety.js)
+     so the HL budget goes to wallets that can actually have new fills */
+  let accrueTargets;
+  if (only) accrueTargets = eligibleWallets().filter((x) => only.has(x));
+  else {
+    const t = sweepTargets(eligibleWallets(), s, { hotMs: cfg.SWEEP_HOT_MS, budget: cfg.SWEEP_BUDGET, cycle: s.accrueCycle });
+    accrueTargets = t.targets;
+    console.log(`[megapot] sweep: ${t.targets.length} wallet(s) this cycle (${t.fresh} new, ${t.hot} active, ${t.coldSwept}/${t.cold} dormant in rotation)`);
+  }
   let skipped = 0;
   for (const w of accrueTargets) {
    try {
