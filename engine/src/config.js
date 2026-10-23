@@ -57,6 +57,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseRpcList, DEFAULT_RPCS } from './rpc.js';
+import { feedUrlFrom } from './depositOffer.js';
 
 // campaign controller — product parameters live in campaign.json (repo root);
 // env keeps the security gates and secrets. CAMPAIGN_FILE overrides the path.
@@ -190,6 +191,13 @@ export const cfg = {
   STATUS_URL: process.env.STATUS_URL || (process.env.USERS_URL || '').replace(/\/api\/admin\/wallets.*$/, '/api/admin/megapot/status'),
   // the loop cadence run_engine.sh runs at (ENGINE_INTERVAL_S, else the sheet's hub.engineCycleS) - on every status row
   CYCLE_MS: Number(process.env.ENGINE_INTERVAL_S || campaign.hub?.engineCycleS || 300) * 1000,
+  // deposit-offer lane (depositOffer.js): one USDC-minted ticket per qualifying wallet of the
+  // Prizerail deposit A/B's prize arm. Off unless DEPOSIT_OFFER_ACTIVE=1. Own budget, counted in
+  // the ledger (depositOfferSpentUsdc) AND in spentUsdc, so GLOBAL_BUDGET_USDC still holds.
+  DEPOSIT_OFFER_ACTIVE: process.env.DEPOSIT_OFFER_ACTIVE === '1',
+  DEPOSIT_OFFER_BUDGET_USDC: Number(process.env.DEPOSIT_OFFER_BUDGET_USDC || 50),
+  // the app's owed-rewards feed; derived from USERS_URL when unset. Bearer USERS_TOKEN.
+  DEPOSIT_OFFER_FEED_URL: feedUrlFrom(process.env.DEPOSIT_OFFER_FEED_URL || '', process.env.USERS_URL || ''),
   MEGAPOT_API: (process.env.MEGAPOT_API || ((process.env.TARGET || campaign.campaign.network || 'testnet') === 'mainnet' ? 'https://api.megapot.io/v1' : 'https://api-testnet.megapot.io/v1')).replace(/\/$/, ''),
 };
 export const retroEnabled = () => !!(cfg.RETRO_TRANSFERS && cfg.TICKET_NFT);
@@ -199,6 +207,12 @@ export const net = () => cfg.nets[cfg.TARGET];
 export const jackpotAbi = [
   { type: 'function', name: 'ticketPrice', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'currentDrawingId', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  // drawingTime is in SECONDS (same fragment as the hub's RewardHub.tsx); read by the deposit-offer lane
+  { type: 'function', name: 'getDrawingState', stateMutability: 'view', inputs: [{ type: 'uint256' }], outputs: [{ type: 'tuple', components: [
+    { name: 'prizePool', type: 'uint256' }, { name: 'ticketPrice', type: 'uint256' }, { name: 'edgePerTicket', type: 'uint256' },
+    { name: 'referralWinShare', type: 'uint256' }, { name: 'referralFee', type: 'uint256' }, { name: 'globalTicketsBought', type: 'uint256' },
+    { name: 'lpEarnings', type: 'uint256' }, { name: 'drawingTime', type: 'uint256' }, { name: 'winningTicket', type: 'uint256' },
+    { name: 'ballMax', type: 'uint8' }, { name: 'bonusballMax', type: 'uint8' }, { name: 'payoutCalculator', type: 'address' }, { name: 'jackpotLock', type: 'bool' } ] }] },
 ];
 export const buyerAbi = [
   { type: 'function', name: 'buyTickets', stateMutability: 'nonpayable', inputs: [
