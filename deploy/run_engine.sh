@@ -30,6 +30,10 @@ while true; do
   echo "[megapot] $(date -u) buy"
   node src/run.js buy || echo "[megapot] buy failed (continuing)" >&2
   step_gate buy
+  # deposit-offer lane: one ticket per qualifying prize-arm account (off unless
+  # DEPOSIT_OFFER_ACTIVE=1; own budget; returns at once when off)
+  node src/run.js deposit-offer || echo "[megapot] deposit-offer failed (continuing)" >&2
+  step_gate deposit-offer
   # win sweep + daily lifecycle status (comms only; never touches the wire)
   node src/run.js winsweep || echo "[megapot] winsweep failed (continuing)" >&2
   step_gate winsweep

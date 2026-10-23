@@ -27,6 +27,7 @@ import { signPinned } from './txsign.js';
 import { needsRewind } from './reset.js';
 import { rpcTransport, watchRateLimits, RPC_TIMEOUT_MS } from './rpc.js';
 import { decideBuy, statusRows, engineDoc } from './status.js';
+import { runDepositOffer, summary as depositOfferSummary, EXPERIMENT as DEPOSIT_EXPERIMENT, INTENT_KIND as DEPOSIT_INTENT } from './depositOffer.js';
 
 // every upstream call is bounded: one hung feed must never freeze a cycle
 const FETCH_MS = 12_000;
@@ -629,6 +630,7 @@ async function reconcile(s, pub, priceUsd, accountNonce, emits) {
 // or 30 min without consumption = the tx can never mine, drop it with no debit.
 async function reconcileIntents(s, pub, accountNonce, emits) {
   for (const it of (s.intents || []).slice()) {
+    if (it.kind === DEPOSIT_INTENT) continue;      // settled by the deposit-offer lane (depositOffer.js settleOpen)
     const receipt = await receiptStatus(pub, it.tx);
     const consumed = accountNonce != null && accountNonce > Number(it.nonce);
     const txFound = (consumed && receipt === null) ? await txPresent(pub, it.tx) : null;
@@ -1043,6 +1045,114 @@ async function transferRetro({ s, ws, w, tokenIds, inv, pub, account, chain, day
   return false;
 }
 
+// ── deposit-offer lane: one ticket per qualifying prize-arm account (depositOffer.js) ──
+// Runs after `buy` in the cycle (run_engine.sh), under the ledger lock. Mints with USDC through
+// randomBuyer like a buy, but is NOT fee credit: no wallet credit moves, the day/week caps do not
+// apply, the cap is one ticket per wallet for the experiment. Own budget + GLOBAL_BUDGET_USDC.
+// Not bounded by the season END_MS: the A/B runs on the app's window (its feed only lists owed
+// rows); DEPOSIT_OFFER_ACTIVE=0 or MEGAPOT_ACTIVE=0 stops it.
+export async function depositOfferLane() {
+  if (!cfg.DEPOSIT_OFFER_ACTIVE) { console.log('[megapot] deposit-offer lane off (DEPOSIT_OFFER_ACTIVE != 1)'); return null; }
+  guard();
+  if (!cfg.DEPOSIT_OFFER_FEED_URL) throw new Error('deposit-offer lane needs DEPOSIT_OFFER_FEED_URL or USERS_URL (…/api/admin/wallets)');
+  if (!cfg.DRY_RUN && !cfg.TICKET_NFT) throw new Error('deposit-offer lane LIVE needs TICKET_NFT: the minted token id is read from its Transfer log');
+  const release = acquireLock(STATE);
+  const rateLimited = new Set();
+  try { return await depositOfferInner(rateLimited); }
+  finally { try { if (rateLimited.size) await rpcAlert(rateLimited); } finally { release(); } }
+}
+async function depositOfferInner(rateLimited) {
+  const s = load();
+  const n = net();
+  const chain = cfg.TARGET === 'mainnet' ? base : baseSepolia;
+  const transport = rpcTransport(n.rpcs);
+  const pub = createPublicClient({ chain, transport });
+  watchRateLimits(pub, (url) => rateLimited.add(url));
+  const price = await pub.readContract({ address: n.jackpot, abi: jackpotAbi, functionName: 'ticketPrice' });
+  const priceUsd = Number(formatUnits(price, 6));
+  let account = null;
+  if (cfg.PRIVATE_KEY) { try { account = privateKeyToAccount(cfg.PRIVATE_KEY); } catch (e) { if (!cfg.DRY_RUN) throw e; } }
+  else if (cfg.DRY_RUN && cfg.POOL_WALLET) account = { address: cfg.POOL_WALLET };
+  const accountNonce = await latestNonce(pub, account?.address);
+  console.log(`[megapot] deposit-offer lane · ticket $${priceUsd} · budget $${cfg.DEPOSIT_OFFER_BUDGET_USDC} · ${cfg.DRY_RUN ? 'DRY RUN — no funds move' : 'LIVE'}`);
+
+  // the same send gates as a USDC buy: fee ceiling, then one ticket of USDC + the gas reserve
+  let maxFee = cfg.MAX_FEE_WEI < cfg.MAX_FEE_CEILING_WEI ? cfg.MAX_FEE_WEI : cfg.MAX_FEE_CEILING_WEI;
+  let canSend = true, holdReason = '';
+  try {
+    const blk = await pub.getBlock();
+    const baseFee = blk?.baseFeePerGas ?? 0n;
+    maxFee = feeCapFor(baseFee, cfg.MAX_FEE_CEILING_WEI, cfg.PRIORITY_FEE_WEI);
+    if (baseFee > cfg.MAX_FEE_CEILING_WEI) { canSend = false; holdReason = `base fee ${formatUnits(baseFee, 9)} gwei above ceiling`; }
+  } catch (e) { console.log(`[megapot] deposit-offer: base fee unreadable (${e.message}) - using ${formatUnits(maxFee, 9)} gwei cap`); }
+  if (!cfg.DRY_RUN && canSend) {
+    try {
+      const [usdc, eth] = await Promise.all([
+        pub.readContract({ address: n.usdc, abi: erc20Abi, functionName: 'balanceOf', args: [account.address] }),
+        pub.getBalance({ address: account.address }),
+      ]);
+      const lf = lowFunds({ usdc, eth, priceUnits: price, maxFeeWei: cfg.MAX_FEE_WEI });
+      if (lf.low) { canSend = false; holdReason = 'pool wallet low on funds'; await alert(s, 'low_funds', { usdc: formatUnits(usdc, 6), eth: formatEther(eth), lane: 'deposit-offer' }); }
+      else {
+        // standing allowance: the buy path sets it (allowance.js); this lane only spends under it
+        const allowance = await pub.readContract({ address: n.usdc, abi: erc20Abi, functionName: 'allowance', args: [account.address, n.randomBuyer] });
+        const approveFor = planApproval(allowance, price, price);
+        if (approveFor != null) {
+          const wallet = createWalletClient({ account, chain, transport });
+          const h = await wallet.writeContract({ address: n.usdc, abi: erc20Abi, functionName: 'approve', args: [n.randomBuyer, approveFor], gas: 120_000n, maxFeePerGas: maxFee, maxPriorityFeePerGas: cfg.PRIORITY_FEE_WEI });
+          await pub.waitForTransactionReceipt({ hash: h });
+          console.log(`standing allowance set by the deposit-offer lane: ${approveFor} (tx ${h}) - mints start next cycle`);
+          canSend = false; holdReason = 'allowance just set';
+        }
+      }
+    } catch (e) { canSend = false; holdReason = `balance/allowance check failed (${e.message})`; }
+  }
+  save(s);
+
+  const tag = keccak256(toHex(cfg.SOURCE_TAG));
+  const argsFor = (w) => [1n, w, cfg.TREASURY ? [cfg.TREASURY] : [], cfg.TREASURY ? [10n ** 18n] : [], tag];
+  const io = {
+    log: (m) => console.log(m),
+    save: () => save(s),
+    fetchFeed: async () => {
+      const r = await fetchT(cfg.DEPOSIT_OFFER_FEED_URL, { headers: authHeaders() });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    receipt: async (hash) => { try { return await pub.getTransactionReceipt({ hash }); } catch (e) { return isNotFound(e) ? null : undefined; } },
+    txFound: (hash) => txPresent(pub, hash),
+    drawing: async () => {
+      const id = await pub.readContract({ address: n.jackpot, abi: jackpotAbi, functionName: 'currentDrawingId' });
+      let drawAt = null;
+      try {
+        const st = await pub.readContract({ address: n.jackpot, abi: jackpotAbi, functionName: 'getDrawingState', args: [id] });
+        const sec = Number(st?.drawingTime ?? 0);
+        if (sec > 0) drawAt = sec * 1000;
+      } catch { /* optional: the app reads the draw time on chain without it */ }
+      return { round: id.toString(), drawAt };
+    },
+    simulate: (w) => pub.simulateContract({ address: n.randomBuyer, abi: buyerAbi, functionName: 'buyTickets', args: argsFor(w), account }),
+    sign: async (w) => {
+      const nonce = await pub.getTransactionCount({ address: account.address, blockTag: 'pending' });
+      return signPinned(account, chain.id, { to: n.randomBuyer, abi: buyerAbi, functionName: 'buyTickets', args: argsFor(w),
+        gas: buyGasFor(1), maxFeePerGas: maxFee, maxPriorityFeePerGas: cfg.PRIORITY_FEE_WEI, nonce });
+    },
+    send: (serialized) => pub.sendRawTransaction({ serializedTransaction: serialized }),
+    waitReceipt: (hash) => pub.waitForTransactionReceipt({ hash, timeout: 120_000 }),
+  };
+  const res = await runDepositOffer(s, {
+    exp: DEPOSIT_EXPERIMENT, nft: cfg.TICKET_NFT, priceUsd, budgetUsd: cfg.DEPOSIT_OFFER_BUDGET_USDC, globalBudgetUsd: cfg.GLOBAL_BUDGET_USDC,
+    dryRun: cfg.DRY_RUN, canSend, holdReason, accountNonce,
+  }, io);
+  if (res.stop) await alert(s, 'deposit_offer_budget', { reason: res.stop });
+  save(s);
+  // grants were queued in the same save that marked each entry issued; deliver them now
+  await flushOutbox(s);
+  save(s);
+  console.log(`[megapot] deposit-offer: ${cfg.DRY_RUN ? `${res.wouldMint.length} WOULD mint` : `${res.minted} minted`}, spent $${depositOfferSummary(s, DEPOSIT_EXPERIMENT).spentUsdc}/${cfg.DEPOSIT_OFFER_BUDGET_USDC}${res.settled ? `, settled ${JSON.stringify(res.settled)}` : ''}`);
+  return res;
+}
+
 // ── fast lane: accrue + buy for wallets with a FRESH execution receipt ────────
 // Runs between full sweeps (every ENGINE_FAST_S). The backend lists wallets that
 // recorded a fill since the last fast run, so a validated trade mints within
@@ -1095,6 +1205,7 @@ export function status() {
     pools: { packs: `${s.firstTradePoolUsed || 0}/${cfg.FIRST_TRADE?.poolTickets ?? '-'}`, boxes: `${s.streakBoxPoolUsed || 0}/${cfg.STREAK_BOX?.poolTickets ?? '-'}`, multiplierUsd: +(s.multiplierBonusUsd || 0).toFixed(2) },
     intentsPending: (s.intents || []).length, purchasesUnverified: (s.purchases || []).filter((p) => !p.verified).length,
     outboxPending: (s.outbox || []).length, accrueSkipStreak: s.accrueSkipStreak || 0,
+    depositOffer: cfg.DEPOSIT_OFFER_ACTIVE || s.depositOffer ? { active: cfg.DEPOSIT_OFFER_ACTIVE, budgetUsdc: cfg.DEPOSIT_OFFER_BUDGET_USDC, ...depositOfferSummary(s, DEPOSIT_EXPERIMENT) } : undefined,
   }, null, 2));
 }
 

@@ -1,11 +1,12 @@
-import { accrue, buy, status, winSweep, load, save, fastLane, STATE } from './engine.js';
+import { accrue, buy, status, winSweep, load, save, fastLane, depositOfferLane, STATE } from './engine.js';
 import { resetWallets } from './reset.js';
 import { acquireLock } from './ledger.js';
 
 const cmd = process.argv[2];
 if (cmd === 'accrue') await accrue();
 else if (cmd === 'buy') await buy();
-else if (cmd === 'cycle') { await accrue(); await buy(); await winSweep(); }
+else if (cmd === 'cycle') { await accrue(); await buy(); await depositOfferLane(); await winSweep(); }
+else if (cmd === 'deposit-offer') await depositOfferLane();
 else if (cmd === 'winsweep') await winSweep();
 else if (cmd === 'fast') await fastLane();
 else if (cmd === 'reset') {
@@ -19,4 +20,4 @@ else if (cmd === 'reset') {
   finally { release(); }
 }
 else if (cmd === 'status') status();
-else console.log('usage: node src/run.js accrue|buy|winsweep|cycle|status|reset <wallets>');
+else console.log('usage: node src/run.js accrue|buy|deposit-offer|winsweep|cycle|status|reset <wallets>');
